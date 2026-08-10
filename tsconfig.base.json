@@ -12,7 +12,8 @@
     "types": ["node"],
     "paths": {
       "@proofline/canonical": ["packages/canonical/src/index.ts"],
-      "@proofline/domain": ["packages/domain/src/index.ts"]
+      "@proofline/domain": ["packages/domain/src/index.ts"],
+      "@proofline/authz": ["packages/authz/src/index.ts"]
     }
   }
 }

@@ -10,6 +10,9 @@ export default defineConfig({
       '@proofline/domain': fileURLToPath(
         new URL('./packages/domain/src/index.ts', import.meta.url),
       ),
+      '@proofline/authz': fileURLToPath(
+        new URL('./packages/authz/src/index.ts', import.meta.url),
+      ),
     },
   },
   test: {
