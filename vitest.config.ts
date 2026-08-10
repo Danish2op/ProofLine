@@ -7,6 +7,9 @@ export default defineConfig({
       '@proofline/canonical': fileURLToPath(
         new URL('./packages/canonical/src/index.ts', import.meta.url),
       ),
+      '@proofline/domain': fileURLToPath(
+        new URL('./packages/domain/src/index.ts', import.meta.url),
+      ),
     },
   },
   test: {

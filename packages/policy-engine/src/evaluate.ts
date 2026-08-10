@@ -1,4 +1,4 @@
-import type { ActionPassportV1 } from '../../domain/src/action.js';
+import type { ActionPassportV1 } from '@proofline/domain';
 
 import { scoreRiskFactors, type PolicyReason } from './risk.js';
 import {

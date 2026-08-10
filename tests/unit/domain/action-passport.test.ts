@@ -57,6 +57,19 @@ describe('validatePassport', () => {
       expect(result.value.target).toBe('sandbox://demo-web/staging');
   });
 
+  it('accepts an uncapped explainable policy risk score', () => {
+    const result = validatePassport({
+      ...validPassport(),
+      risk: {
+        level: 'critical',
+        reasons: ['Destructive action', 'Production environment'],
+        score: 105,
+      },
+    });
+
+    expect(result).toMatchObject({ ok: true });
+  });
+
   it('requires an explicit status so raw and validated passport hashes bind', () => {
     const { status: _status, ...withoutStatus } = validPassport();
     const withStatus = { ...withoutStatus, status: 'DRAFT' };

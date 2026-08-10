@@ -1,10 +1,13 @@
 export const policyReasonCodes = [
-  'actor_identity_mismatch',
   'destructive_action',
   'expired_delegated_authority',
   'external_side_effect',
+  'invalid_clock',
+  'invalid_actor_metadata',
+  'invalid_delegated_authority',
   'missing_delegated_authority',
   'non_idempotent_action',
+  'non_expiring_delegated_authority',
   'production_environment',
   'restricted_data',
   'sensitive_data',
@@ -28,12 +31,6 @@ export interface RiskFactor extends PolicyReason {
 }
 
 export const riskFactors = {
-  actorIdentityMismatch: {
-    code: 'actor_identity_mismatch',
-    message: 'The authenticated actor does not match the passport agent.',
-    score: 100,
-    disposition: 'deny',
-  },
   destructiveAction: {
     code: 'destructive_action',
     message: 'The tool declares a destructive operation.',
@@ -52,6 +49,24 @@ export const riskFactors = {
     score: 20,
     disposition: 'require_approval',
   },
+  invalidClock: {
+    code: 'invalid_clock',
+    message: 'The server clock is invalid or ambiguous.',
+    score: 100,
+    disposition: 'deny',
+  },
+  invalidActorMetadata: {
+    code: 'invalid_actor_metadata',
+    message: 'Actor metadata is malformed or does not match the passport.',
+    score: 100,
+    disposition: 'deny',
+  },
+  invalidDelegatedAuthority: {
+    code: 'invalid_delegated_authority',
+    message: 'Delegated authority contains an invalid expiry timestamp.',
+    score: 100,
+    disposition: 'deny',
+  },
   missingDelegatedAuthority: {
     code: 'missing_delegated_authority',
     message:
@@ -64,6 +79,12 @@ export const riskFactors = {
     message: 'The tool does not declare idempotent execution.',
     score: 10,
     disposition: 'require_approval',
+  },
+  nonExpiringDelegatedAuthority: {
+    code: 'non_expiring_delegated_authority',
+    message: 'The workspace requires an expiry on delegated authority.',
+    score: 100,
+    disposition: 'deny',
   },
   productionEnvironment: {
     code: 'production_environment',
@@ -126,9 +147,6 @@ export function scoreRiskFactors(factors: readonly RiskFactor[]): {
       message,
       score,
     })),
-    riskScore: Math.min(
-      100,
-      factors.reduce((total, factor) => total + factor.score, 0),
-    ),
+    riskScore: factors.reduce((total, factor) => total + factor.score, 0),
   };
 }

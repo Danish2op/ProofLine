@@ -15,7 +15,7 @@ export const RiskSchema = z
   .object({
     level: z.enum(['low', 'medium', 'high', 'critical']),
     reasons: z.array(z.string().min(1).max(256)).max(32),
-    score: z.number().finite().min(0).max(100),
+    score: z.number().finite().min(0),
   })
   .strict();
 
@@ -31,7 +31,7 @@ export const PolicySnapshotSchema = z
 
 export type PolicySnapshot = z.infer<typeof PolicySnapshotSchema>;
 
-function isIsoTimestamp(value: string): boolean {
+export function isIsoTimestamp(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) {
     return false;
   }

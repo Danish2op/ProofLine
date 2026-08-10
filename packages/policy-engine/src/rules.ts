@@ -1,5 +1,5 @@
-import type { ActionPassportV1 } from '../../domain/src/action.js';
 import { hashCanonicalJson } from '@proofline/canonical';
+import { isIsoTimestamp, type ActionPassportV1 } from '@proofline/domain';
 
 import { riskFactors, type RiskFactor } from './risk.js';
 
@@ -46,6 +46,7 @@ export interface WorkspacePolicy {
   deniedScopes?: string[];
   restrictedDataClasses?: DataClass[];
   approvalRoles?: Role[];
+  requireDelegatedAuthorityExpiry?: boolean;
 }
 
 interface NormalizedWorkspacePolicy {
@@ -55,6 +56,7 @@ interface NormalizedWorkspacePolicy {
   deniedScopes: string[];
   restrictedDataClasses: DataClass[];
   approvalRoles: Role[];
+  requireDelegatedAuthorityExpiry: boolean;
 }
 
 export interface RuleEvaluation {
@@ -72,6 +74,27 @@ export function evaluateRules(input: {
 }): RuleEvaluation {
   const policy = normalizeWorkspacePolicy(input.workspacePolicy);
   if (!policy) return invalidPolicyEvaluation();
+  if (!isValidClock(input.now)) {
+    return {
+      factors: [riskFactors.invalidClock],
+      policySnapshotHash: snapshotHash(policy),
+      requiredRoles: [],
+    };
+  }
+  if (!isValidActorMetadata(input.actor, input.passport)) {
+    return {
+      factors: [riskFactors.invalidActorMetadata],
+      policySnapshotHash: snapshotHash(policy),
+      requiredRoles: [],
+    };
+  }
+  if (!hasValidDelegatedAuthorityTimestamp(input.actor)) {
+    return {
+      factors: [riskFactors.invalidDelegatedAuthority],
+      policySnapshotHash: snapshotHash(policy),
+      requiredRoles: [],
+    };
+  }
 
   const metadata = input.toolMetadata;
   if (!isTrustedToolMetadata(metadata, input.passport, policy)) {
@@ -83,22 +106,24 @@ export function evaluateRules(input: {
   }
 
   const factors: RiskFactor[] = [];
-  if (!isMatchingActor(input.actor, input.passport)) {
-    factors.push(riskFactors.actorIdentityMismatch);
+  if (input.actor.recognized !== true) {
+    factors.push(riskFactors.unrecognizedAgent);
   }
-  if (!input.actor.recognized) factors.push(riskFactors.unrecognizedAgent);
   if (
     !hasValidDelegatedAuthority(
       input.actor,
       input.passport,
       metadata,
+      policy,
       input.now,
     )
   ) {
     factors.push(
-      isExpiredAuthority(input.actor, input.now)
-        ? riskFactors.expiredDelegatedAuthority
-        : riskFactors.missingDelegatedAuthority,
+      isNonExpiringAuthority(input.actor, policy)
+        ? riskFactors.nonExpiringDelegatedAuthority
+        : isExpiredAuthority(input.actor, input.now)
+          ? riskFactors.expiredDelegatedAuthority
+          : riskFactors.missingDelegatedAuthority,
     );
   }
   if (hasStaleEvidence(input.passport, input.now)) {
@@ -160,6 +185,12 @@ function normalizeWorkspacePolicy(
   if (!isOptionalStringSet(policy.restrictedDataClasses, isDataClass))
     return null;
   if (!isOptionalStringSet(policy.approvalRoles, isRole)) return null;
+  if (
+    policy.requireDelegatedAuthorityExpiry !== undefined &&
+    typeof policy.requireDelegatedAuthorityExpiry !== 'boolean'
+  ) {
+    return null;
+  }
 
   return {
     version: policy.version,
@@ -168,6 +199,8 @@ function normalizeWorkspacePolicy(
     deniedScopes: [...(policy.deniedScopes ?? [])].sort(),
     restrictedDataClasses: [...(policy.restrictedDataClasses ?? [])].sort(),
     approvalRoles: [...(policy.approvalRoles ?? ['owner'])].sort(),
+    requireDelegatedAuthorityExpiry:
+      policy.requireDelegatedAuthorityExpiry ?? false,
   };
 }
 
@@ -201,14 +234,34 @@ function isTrustedToolMetadata(
   );
 }
 
-function isMatchingActor(actor: Actor, passport: ActionPassportV1): boolean {
-  return isRecord(actor) && actor.pubkey === passport.agentPubkey;
+function isValidActorMetadata(
+  actor: Actor,
+  passport: ActionPassportV1,
+): boolean {
+  if (!isRecord(actor)) return false;
+  if (!isHash(actor.pubkey) || actor.pubkey !== passport.agentPubkey) {
+    return false;
+  }
+  if (typeof actor.recognized !== 'boolean') return false;
+  if (!isStringSet(actor.roles, isRole) || actor.roles.length === 0)
+    return false;
+
+  const authority = actor.delegatedAuthority;
+  if (authority === undefined) return true;
+  return (
+    isRecord(authority) &&
+    isHash(authority.delegatedBy) &&
+    isStringSet(authority.scopes) &&
+    (authority.expiresAt === undefined ||
+      typeof authority.expiresAt === 'string')
+  );
 }
 
 function hasValidDelegatedAuthority(
   actor: Actor,
   passport: ActionPassportV1,
   metadata: ToolMetadata,
+  policy: NormalizedWorkspacePolicy,
   now: Date,
 ): boolean {
   const authority = actor.delegatedAuthority;
@@ -221,9 +274,26 @@ function hasValidDelegatedAuthority(
   ) {
     return false;
   }
-  if (authority.expiresAt === undefined) return true;
+  if (authority.expiresAt === undefined) {
+    return !policy.requireDelegatedAuthorityExpiry;
+  }
   const expiresAt = Date.parse(authority.expiresAt);
   return Number.isFinite(expiresAt) && expiresAt > now.getTime();
+}
+
+function isNonExpiringAuthority(
+  actor: Actor,
+  policy: NormalizedWorkspacePolicy,
+): boolean {
+  return (
+    policy.requireDelegatedAuthorityExpiry &&
+    actor.delegatedAuthority?.expiresAt === undefined
+  );
+}
+
+function hasValidDelegatedAuthorityTimestamp(actor: Actor): boolean {
+  const expiresAt = actor.delegatedAuthority?.expiresAt;
+  return expiresAt === undefined || isIsoTimestamp(expiresAt);
 }
 
 function isExpiredAuthority(actor: Actor, now: Date): boolean {
@@ -236,10 +306,15 @@ function hasStaleEvidence(passport: ActionPassportV1, now: Date): boolean {
     passport.evidence.length === 0 ||
     passport.evidence.some((evidence) => {
       if (evidence.expiresAt === undefined) return true;
+      if (!isIsoTimestamp(evidence.expiresAt)) return true;
       const expiresAt = Date.parse(evidence.expiresAt);
       return !Number.isFinite(expiresAt) || expiresAt <= now.getTime();
     })
   );
+}
+
+function isValidClock(now: Date): boolean {
+  return now instanceof Date && Number.isFinite(now.getTime());
 }
 
 function isExplicitlyDenied(

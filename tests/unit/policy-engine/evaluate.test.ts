@@ -70,6 +70,26 @@ describe('evaluatePolicy', () => {
     });
   });
 
+  it('returns the uncapped sum of every applied risk factor', () => {
+    const decision = evaluatePolicy(
+      policyInput({
+        passport: { environment: 'production' },
+        toolMetadata: {
+          readOnly: false,
+          destructive: true,
+          idempotent: false,
+          externalSideEffect: true,
+          dataClasses: ['confidential'],
+        },
+      }),
+    );
+
+    expect(decision.riskScore).toBe(105);
+    expect(decision.riskScore).toBe(
+      decision.reasons.reduce((total, reason) => total + reason.score, 0),
+    );
+  });
+
   it('denies access to workspace-restricted data', () => {
     const decision = evaluatePolicy(
       policyInput({
@@ -82,6 +102,19 @@ describe('evaluatePolicy', () => {
       decision: 'deny',
       reasons: [{ code: 'restricted_data', score: 40 }],
       riskScore: 40,
+    });
+  });
+
+  it('requires approval for confidential data that is not workspace-restricted', () => {
+    const decision = evaluatePolicy(
+      policyInput({ toolMetadata: { dataClasses: ['confidential'] } }),
+    );
+
+    expect(decision).toMatchObject({
+      decision: 'require_approval',
+      requiredRoles: ['owner'],
+      reasons: [{ code: 'sensitive_data', score: 20 }],
+      riskScore: 20,
     });
   });
 
@@ -139,6 +172,38 @@ describe('evaluatePolicy', () => {
     });
   });
 
+  it('denies an action with a non-canonical evidence expiry timestamp', () => {
+    const decision = evaluatePolicy(
+      policyInput({
+        passport: {
+          evidence: [
+            {
+              ...passport().evidence[0],
+              expiresAt: '2026-08-11',
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(decision).toMatchObject({
+      decision: 'deny',
+      reasons: [{ code: 'stale_evidence', score: 100 }],
+    });
+  });
+
+  it('denies an action when the server clock is invalid', () => {
+    const decision = evaluatePolicy({
+      ...policyInput(),
+      now: new Date('invalid'),
+    });
+
+    expect(decision).toMatchObject({
+      decision: 'deny',
+      reasons: [{ code: 'invalid_clock', score: 100 }],
+    });
+  });
+
   it('denies an unrecognized agent', () => {
     const decision = evaluatePolicy(
       policyInput({ actor: { recognized: false } }),
@@ -151,6 +216,22 @@ describe('evaluatePolicy', () => {
     });
   });
 
+  it.each([
+    ['a string recognition flag', { recognized: 'false' }],
+    ['an unknown actor role', { roles: ['forged_role'] }],
+  ])('denies runtime-malformed actor metadata with %s', (_name, patch) => {
+    const input = policyInput();
+    const decision = evaluatePolicy({
+      ...input,
+      actor: { ...input.actor, ...patch } as unknown as Actor,
+    });
+
+    expect(decision).toMatchObject({
+      decision: 'deny',
+      reasons: [{ code: 'invalid_actor_metadata', score: 100 }],
+    });
+  });
+
   it('denies an agent without matching delegated authority', () => {
     const decision = evaluatePolicy(
       policyInput({ actor: { delegatedAuthority: undefined } }),
@@ -160,6 +241,59 @@ describe('evaluatePolicy', () => {
       decision: 'deny',
       reasons: [{ code: 'missing_delegated_authority', score: 100 }],
       riskScore: 100,
+    });
+  });
+
+  it('denies a non-expiring delegation when workspace policy requires expiry', () => {
+    const decision = evaluatePolicy(
+      policyInput({
+        workspacePolicy: {
+          requireDelegatedAuthorityExpiry: true,
+        },
+      }),
+    );
+
+    expect(decision).toMatchObject({
+      decision: 'deny',
+      reasons: [{ code: 'non_expiring_delegated_authority', score: 100 }],
+    });
+  });
+
+  it('denies a delegation with an invalid expiry timestamp', () => {
+    const input = policyInput();
+    const decision = evaluatePolicy({
+      ...input,
+      actor: {
+        ...input.actor,
+        delegatedAuthority: {
+          ...input.actor.delegatedAuthority!,
+          expiresAt: 'not-a-timestamp',
+        },
+      },
+    });
+
+    expect(decision).toMatchObject({
+      decision: 'deny',
+      reasons: [{ code: 'invalid_delegated_authority', score: 100 }],
+    });
+  });
+
+  it('denies an expired delegation', () => {
+    const input = policyInput();
+    const decision = evaluatePolicy({
+      ...input,
+      actor: {
+        ...input.actor,
+        delegatedAuthority: {
+          ...input.actor.delegatedAuthority!,
+          expiresAt: '2026-08-10T10:14:59.999Z',
+        },
+      },
+    });
+
+    expect(decision).toMatchObject({
+      decision: 'deny',
+      reasons: [{ code: 'expired_delegated_authority', score: 100 }],
     });
   });
 
