@@ -13,6 +13,9 @@ export default defineConfig({
       '@proofline/authz': fileURLToPath(
         new URL('./packages/authz/src/index.ts', import.meta.url),
       ),
+      '@proofline/buzz-adapter': fileURLToPath(
+        new URL('./packages/buzz-adapter/src/index.ts', import.meta.url),
+      ),
       'next/server': fileURLToPath(
         new URL('./apps/web/node_modules/next/server.js', import.meta.url),
       ),

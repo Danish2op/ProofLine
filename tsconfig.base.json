@@ -14,6 +14,7 @@
       "@proofline/canonical": ["packages/canonical/src/index.ts"],
       "@proofline/domain": ["packages/domain/src/index.ts"],
       "@proofline/authz": ["packages/authz/src/index.ts"],
+      "@proofline/buzz-adapter": ["packages/buzz-adapter/src/index.ts"],
       "next/server": ["apps/web/node_modules/next/server.d.ts"]
     }
   }
