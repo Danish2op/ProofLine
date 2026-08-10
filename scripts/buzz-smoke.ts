@@ -1,7 +1,8 @@
-import type { BuzzCapabilities } from '../packages/buzz-adapter/src/protocol-capabilities.js';
+import {
+  deriveBuzzCapabilities,
+  type BuzzCapabilities,
+} from '../packages/buzz-adapter/src/protocol-capabilities.ts';
 
-const source =
-  'NIP-11 relay information document (read-only GET with Accept: application/nostr+json)';
 const requiredNips = [1];
 
 async function main(): Promise<void> {
@@ -17,7 +18,11 @@ async function main(): Promise<void> {
   try {
     probeUrl = toHttpUrl(relayUrl);
   } catch (error) {
-    fail(`BUZZ_RELAY_URL is invalid: ${message(error)}`);
+    fail(
+      error instanceof Error && error.message === 'userinfo is not permitted'
+        ? 'BUZZ_RELAY_URL must not include userinfo.'
+        : 'BUZZ_RELAY_URL must be a valid http(s) or ws(s) URL without userinfo.',
+    );
     return;
   }
 
@@ -43,28 +48,20 @@ async function main(): Promise<void> {
     return;
   }
 
-  const supportedNips = readSupportedNips(document);
-  if (!supportedNips) {
-    fail(
-      'NIP-11 response is missing a numeric supported_nips array; capabilities cannot be verified.',
+  let capabilities: BuzzCapabilities;
+  try {
+    capabilities = deriveBuzzCapabilities(
+      probeUrl.toString(),
+      document,
+      new Date().toISOString(),
     );
+  } catch (error) {
+    fail(message(error));
     return;
   }
 
-  const capabilities: BuzzCapabilities = {
-    relayUrl: probeUrl.toString(),
-    publishEvents: supportedNips.includes(1),
-    queryEvents: supportedNips.includes(1),
-    subscribeEvents: supportedNips.includes(1),
-    reactions: supportedNips.includes(25),
-    threads: supportedNips.includes(10),
-    channelReferences: supportedNips.includes(29),
-    source,
-    verifiedAt: new Date().toISOString(),
-  };
-
   const unavailable = requiredNips.filter(
-    (nip) => !supportedNips.includes(nip),
+    (nip) => nip !== 1 || !capabilities.publishEvents,
   );
   if (unavailable.length > 0) {
     console.error(
@@ -89,20 +86,15 @@ async function main(): Promise<void> {
 
 function toHttpUrl(relayUrl: string): URL {
   const url = new URL(relayUrl);
+  if (url.username || url.password) {
+    throw new Error('userinfo is not permitted');
+  }
   if (url.protocol === 'ws:') url.protocol = 'http:';
   if (url.protocol === 'wss:') url.protocol = 'https:';
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw new Error('expected an http(s) or ws(s) URL');
   }
   return url;
-}
-
-function readSupportedNips(document: unknown): number[] | null {
-  if (typeof document !== 'object' || document === null) return null;
-  const supportedNips = (document as Record<string, unknown>).supported_nips;
-  return Array.isArray(supportedNips) && supportedNips.every(Number.isInteger)
-    ? supportedNips
-    : null;
 }
 
 function describeJsonShape(value: unknown): unknown {

@@ -26,10 +26,25 @@ channel tag. Replies use the documented NIP-10 `e` reply marker. Reactions use
 `kind:7` with an `e` target; the relay derives their channel from the target, so
 live reaction subscriptions must include `#h`.
 
+Buzz is required for Proofline live operation. Offline replay is a clearly
+labeled non-live fallback for demonstrations and failure handling; it must not
+be presented as live collaboration or as evidence that a Buzz relay is working.
+The live adapter task cannot be approved until the read-only probe and the
+subsequent authenticated transport checks run against a disposable Buzz
+relay/community.
+
 When reactions are unavailable, Proofline must use an explicit approval or
 rejection channel-message reply. When subscriptions are unavailable, it must
 poll filtered historical queries and visibly label delivery as delayed. The UI
 must show either relay limitation rather than implying live reaction status.
+
+NIP-01 transport is required. The `reactions`, `threads`, and
+`channelReferences` capability flags are optional and may intentionally be
+`false`: `reactions=false` selects the explicit message fallback;
+`threads=false` selects flat, explicitly linked messages with no native thread
+view; and `channelReferences=false` makes the channel-scoped live path
+incompatible and fails closed to the labeled offline replay fallback. A future
+adapter must make the selected fallback visible in the UI.
 
 Proofline approval semantics are implemented by Proofline over Buzz events,
 not claimed as a native Buzz approval API. A check-mark reaction is not approval
@@ -57,7 +72,8 @@ The script converts explicit `ws(s)` URLs to `http(s)`, issues one `GET` with
 `Accept: application/nostr+json`, and does not authenticate, subscribe,
 publish, or transmit private material. It emits a capability assessment and a
 recursive JSON _shape_ (not response values), then exits nonzero when the URL
-is absent, the response is unusable, or NIP-01 is not advertised.
+is absent, contains userinfo, the response is unusable, or NIP-01 is not
+advertised. It never logs a credential-bearing relay URL.
 
 No disposable relay URL was provided for this task, so no external smoke request
 was made. The checked-in test verifies the mandatory missing-URL failure. Before
