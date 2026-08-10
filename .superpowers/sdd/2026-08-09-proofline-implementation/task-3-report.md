@@ -167,3 +167,68 @@ fresh full sequence then completed with exit code `0`:
   explicit field metadata.
 - Pattern-based redaction remains defense in depth, not a substitute for
   explicit sensitive-field metadata from future provider adapters.
+
+---
+
+# Task 3 Fix Round 3 Report
+
+Implementation commit: `aa9afc8 fix: preserve auditable hex identifiers`
+
+## Scope and trust boundary
+
+Bare 64-hex values are semantically ambiguous: they can be Proofline hashes,
+Nostr public keys/event IDs, or raw private keys. Redaction therefore preserves
+them by default so audit and provenance fields remain usable. Callers must mark
+an ambiguous secret through a recognized sensitive field name (for example,
+`privateKey`) or `sensitivePaths`, whose path-segment form supports the root
+(`[]`), an array element (`[0]`), or nested fields (`['nested', 'value']`).
+
+`nsec`, JWT, Supabase, and the previously covered token patterns remain
+automatically redacted anywhere because their syntax identifies them as secrets.
+
+## RED evidence
+
+`pnpm vitest run tests/unit/domain/canonicalization.test.ts`
+
+- Exit code: `1`
+- Result: `1 failed | 15 passed` tests in `1 failed` file.
+- Observed failure: a bare synthetic 64-hex audit identifier at the root was
+  rendered as `[REDACTED:…]` by the global hex pattern. The test also covers
+  root/array visibility, named sensitive-field redaction, explicit path
+  redaction, and the concrete `passportHash`, `toolDefinitionHash`,
+  `contentHash`, `agentPubkey`, and `eventId` field names.
+
+## GREEN and REFACTOR evidence
+
+After replacing the global hex pattern with path-aware sensitivity metadata:
+
+`pnpm vitest run tests/unit/domain/canonicalization.test.ts`
+
+- Exit code: `0`
+- Result: `16 passed` tests in `1 passed` file.
+
+Applied Prettier to the implementation and regression test, then reran the
+same focused command with the same `16 passed` result.
+
+## Final verification
+
+`pnpm format:check; pnpm typecheck; pnpm lint; pnpm test; pnpm build`
+
+- Exit code: `0`
+- `pnpm format:check`: all files matched Prettier style.
+- `pnpm typecheck`: passed.
+- `pnpm lint`: passed.
+- `pnpm test`: `63 passed` tests in `5 passed` files.
+- `pnpm build`: passed, including the canonical TypeScript build.
+
+## Changed files
+
+- `packages/canonical/src/redaction.ts`
+- `tests/unit/domain/canonicalization.test.ts`
+
+## Concerns
+
+- A raw 64-hex private key cannot be distinguished syntactically from a public
+  identifier or audit hash. The caller metadata contract is therefore a
+  required trust boundary for those values; the redactor cannot safely infer
+  it from the raw string alone.
