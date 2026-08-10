@@ -84,7 +84,7 @@ export function createSupabaseServerAuth(
   factory: SupabaseServerClientFactory = defaultSupabaseServerClientFactory,
 ): SupabaseServerAuth {
   const { url, anonKey } = getPublicSupabaseConfig(environment);
-  let response = NextResponse.next({ request });
+  const response = NextResponse.next({ request });
   const client = factory(url, anonKey, {
     cookieOptions: supabaseAuthCookieOptions,
     cookies: {
@@ -94,7 +94,6 @@ export function createSupabaseServerAuth(
           request.cookies.set(name, value);
         }
 
-        response = NextResponse.next({ request });
         for (const { name, value, options } of cookiesToSet) {
           response.cookies.set(name, value, {
             ...options,

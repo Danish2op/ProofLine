@@ -310,6 +310,75 @@ describe('server workspace authorization', () => {
     });
   });
 
+  it('keeps the returned response live when async refresh later writes all Set-Cookie headers', async () => {
+    let triggerRefreshCookies: (() => Promise<void>) | undefined;
+    const auth = createSupabaseServerAuth(
+      new NextRequest(`${appOrigin}/auth/callback`),
+      {
+        NEXT_PUBLIC_SUPABASE_URL: 'https://project.supabase.co',
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon-key',
+      },
+      (_url, _anonKey, options) => {
+        triggerRefreshCookies = async () => {
+          await Promise.resolve();
+          options.cookies.setAll([
+            {
+              name: 'sb-access-token',
+              value: 'refreshed-access',
+              options: { httpOnly: false, secure: false },
+            },
+            {
+              name: 'sb-refresh-token',
+              value: 'refreshed-refresh',
+              options: { httpOnly: false, secure: false },
+            },
+          ]);
+        };
+
+        return {
+          auth: {
+            getUser: async () => ({
+              data: { user: { id: 'user-1' } },
+              error: null,
+            }),
+            refreshSession: async () => {
+              await triggerRefreshCookies?.();
+              return {
+                data: {
+                  session: {
+                    access_token: 'refreshed-access',
+                    expires_at: session.expiresAt,
+                    user: { id: session.user.id },
+                  },
+                },
+                error: null,
+              };
+            },
+          },
+        };
+      },
+    );
+
+    await auth.client.auth.refreshSession();
+
+    expect(auth.response.cookies.getAll()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'sb-access-token',
+          value: 'refreshed-access',
+          httpOnly: true,
+          secure: true,
+        }),
+        expect.objectContaining({
+          name: 'sb-refresh-token',
+          value: 'refreshed-refresh',
+          httpOnly: true,
+          secure: true,
+        }),
+      ]),
+    );
+  });
+
   it('refreshes a session through the Supabase server client adapter', async () => {
     const auth = createSupabaseServerAuth(
       new NextRequest(`${appOrigin}/auth/callback`),
