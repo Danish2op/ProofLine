@@ -75,10 +75,38 @@ recursive JSON _shape_ (not response values), then exits nonzero when the URL
 is absent, contains userinfo, the response is unusable, or NIP-01 is not
 advertised. It never logs a credential-bearing relay URL.
 
-No disposable relay URL was provided for this task, so no external smoke request
-was made. The checked-in test verifies the mandatory missing-URL failure. Before
-writing a live adapter, run the probe on a disposable community and record only
-the sanitized output and date in an operational runbook, never fixtures or Git.
+### Recorded disposable-community evidence
+
+The read-only probe passed against the user-provided disposable Buzz relay at
+`wss://proofline-demo.communities.buzz.xyz` on
+`2026-08-10T10:53:17.453Z`. The sanitized capability assessment recorded:
+
+| Capability                       | Observed value |
+| -------------------------------- | -------------- |
+| NIP-01 publish, query, subscribe | `true`         |
+| Reactions                        | `true`         |
+| Threads                          | `true`         |
+| Channel references               | `true`         |
+
+The same command was reproduced during this round at
+`2026-08-10T10:54:16.056Z` with the same capability values. Its sanitized
+response shape was a NIP-11 document containing string metadata, a numeric
+`supported_nips` array, a string `supported_extensions` array, and a structured
+`limitation` object; response values were not recorded here.
+
+No channel ID, event, private identity, credential, or raw relay-information
+response was recorded. Reproduce the same read-only check only against the
+disposable community with:
+
+```bash
+BUZZ_RELAY_URL=wss://proofline-demo.communities.buzz.xyz pnpm buzz:smoke
+```
+
+The checked-in test continues to verify mandatory missing-URL and credential
+userinfo failures. This successful read-only probe closes the live dependency
+discovery finding; it does not authenticate, publish, query channel content, or
+validate a transport identity. Those checks remain prerequisites for the later
+authenticated adapter task.
 
 ## Risks and uncertainties
 
