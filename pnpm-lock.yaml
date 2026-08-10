@@ -46,7 +46,14 @@ importers:
 
   packages/execution: {}
 
-  packages/policy-engine: {}
+  packages/policy-engine:
+    dependencies:
+      '@proofline/canonical':
+        specifier: workspace:*
+        version: link:../canonical
+      '@proofline/domain':
+        specifier: workspace:*
+        version: link:../domain
 
 packages:
   '@eslint-community/eslint-utils@4.10.1':
