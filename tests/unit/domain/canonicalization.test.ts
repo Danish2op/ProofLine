@@ -64,13 +64,21 @@ describe('canonicalize', () => {
 
 describe('computePassportHash', () => {
   it('returns the lowercase SHA-256 of canonical JSON independent of key order', () => {
-    expect(computePassportHash({ target: 'staging' })).toBe(
-      '295aff2366ab9f4c0e5ae73e0f49d22cb9a43287d277ab575544a8c28ec14079',
+    expect(computePassportHash({ status: 'DRAFT', target: 'staging' })).toBe(
+      '587c6ead06f9099f6d6044941687678a42a409c06f378c85c24678244b728b13',
     );
     expect(
-      computePassportHash({ arguments: { dryRun: false }, target: 'staging' }),
+      computePassportHash({
+        arguments: { dryRun: false },
+        status: 'DRAFT',
+        target: 'staging',
+      }),
     ).toBe(
-      computePassportHash({ target: 'staging', arguments: { dryRun: false } }),
+      computePassportHash({
+        target: 'staging',
+        status: 'DRAFT',
+        arguments: { dryRun: false },
+      }),
     );
   });
 });
@@ -121,5 +129,21 @@ describe('redactForDisplay', () => {
       secrets: { deploymentCredential: expect.stringMatching(/^\[REDACTED:/) },
     });
     expect(JSON.stringify(redacted)).not.toContain(secret);
+  });
+
+  it.each([
+    ['Nostr private key', 'a'.repeat(64)],
+    ['Nostr nsec key', `nsec1${'q'.repeat(58)}`],
+    ['JWT', `eyJ${'a'.repeat(20)}.${'b'.repeat(20)}.${'c'.repeat(20)}`],
+    ['Supabase secret key', `sb_secret_${'d'.repeat(32)}`],
+  ])('redacts a synthetic %s at the root and in an array', (_name, secret) => {
+    const root = redactForDisplay(secret);
+    const array = redactForDisplay([secret, 'ordinary deployment note']);
+
+    expect(root.redacted).toMatch(/^\[REDACTED:[0-9a-f]{12}\]$/);
+    expect(array.redacted).toEqual([
+      expect.stringMatching(/^\[REDACTED:[0-9a-f]{12}\]$/),
+      'ordinary deployment note',
+    ]);
   });
 });

@@ -17,9 +17,14 @@ const secretKeyParts = [
 ];
 const secretContainers = new Set(['credentials', 'secrets']);
 const secretPatterns = [
+  /\b[a-f0-9]{64}\b/i,
   /\bgh[pousr]_[A-Za-z0-9]{20,}\b/,
   /\bgithub_pat_[A-Za-z0-9_]{20,}\b/,
+  /\bnsec1[023456789acdefghjklmnpqrstuvwxyz]{20,}\b/,
   /\bsk-[A-Za-z0-9_-]{16,}\b/,
+  /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/,
+  /\bsb_(?:secret|publishable)_[A-Za-z0-9_-]{16,}\b/,
+  /\bsbp_[A-Za-z0-9_-]{16,}\b/,
   /\bxox[baprs]-[A-Za-z0-9-]{16,}\b/,
   /\bBearer\s+[A-Za-z0-9._~+/=-]{16,}\b/i,
 ];

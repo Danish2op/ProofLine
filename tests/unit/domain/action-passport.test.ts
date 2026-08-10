@@ -10,6 +10,7 @@ import { computePassportHash } from '../../../packages/canonical/src/hashing.js'
 function validPassport() {
   return {
     schemaVersion: 1,
+    status: 'DRAFT' as const,
     actionId: '4b136918-d3bc-4ee2-a7f5-0dc9f25c5c87',
     workspaceId: 'b6bf1e8d-5f5e-47a7-9c8b-6497afb94bb5',
     agentPubkey: 'a'.repeat(64),
@@ -54,6 +55,24 @@ describe('validatePassport', () => {
     expect(result.ok).toBe(true);
     if (result.ok)
       expect(result.value.target).toBe('sandbox://demo-web/staging');
+  });
+
+  it('requires an explicit status so raw and validated passport hashes bind', () => {
+    const { status: _status, ...withoutStatus } = validPassport();
+    const withStatus = { ...withoutStatus, status: 'DRAFT' };
+
+    expect(validatePassport(withoutStatus)).toMatchObject({ ok: false });
+    expect(() =>
+      computePassportHash(withoutStatus as unknown as { status: unknown }),
+    ).toThrow('must include an explicit status');
+
+    const validated = validatePassport(withStatus);
+    expect(validated.ok).toBe(true);
+    if (validated.ok) {
+      expect(computePassportHash(withStatus)).toBe(
+        computePassportHash(validated.value),
+      );
+    }
   });
 
   it('rejects a missing agent identity', () => {

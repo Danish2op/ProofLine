@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { z, ZodError } from 'zod';
 
-import { findJsonSafetyIssue } from '../../canonical/src/json-safe.js';
+import { findJsonSafetyIssue } from '@proofline/canonical';
 import { EvidenceSchema } from './evidence.js';
 import {
   DomainValidationError,
@@ -74,7 +74,7 @@ export const ActionPassportV1Schema = z
     evidence: EvidenceSchema,
     policySnapshot: PolicySnapshotSchema,
     approval: ApprovalSchema,
-    status: z.enum(actionLifecycleStatuses).default('DRAFT'),
+    status: z.enum(actionLifecycleStatuses),
     idempotencyKey: IdempotencyKeySchema,
     createdAt: timestampSchema,
   })

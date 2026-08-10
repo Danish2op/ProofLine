@@ -2,9 +2,12 @@ import { createHash } from 'node:crypto';
 
 import { canonicalize } from './canonicalize.js';
 
-export type HashablePassport = Record<string, unknown>;
+export type HashablePassport = Record<string, unknown> & { status: unknown };
 
 export function computePassportHash(passport: HashablePassport): string {
+  if (!Object.hasOwn(passport, 'status')) {
+    throw new TypeError('A hashable passport must include an explicit status.');
+  }
   return hashCanonicalJson(passport);
 }
 
