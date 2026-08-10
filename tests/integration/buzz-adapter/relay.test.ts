@@ -4,10 +4,84 @@ import { schnorr } from '@noble/curves/secp256k1.js';
 import { describe, expect, it } from 'vitest';
 
 import { BuzzAdapterClient } from '../../../packages/buzz-adapter/src/client.js';
+import { Nip01RelayTransport } from '../../../packages/buzz-adapter/src/relay-transport.js';
 
 const testPrivateKey = '3'.repeat(64);
 
 describe('Buzz relay adapter', () => {
+  it('answers a NIP-42 challenge before resolving a NIP-01 publication', async () => {
+    const socket = new FakeRelaySocket();
+    const signer = deterministicSigner();
+    const transport = new Nip01RelayTransport({
+      relayUrl: 'wss://relay.example.test',
+      signer,
+      socketFactory: () => socket,
+    });
+    const event = await signer.sign({
+      created_at: 1_700_000_000,
+      kind: 9,
+      tags: [['h', 'proofline-demo-channel']],
+      content: 'proposal',
+    });
+
+    const published = transport.publish(event);
+    socket.open();
+    await Promise.resolve();
+    socket.receive(['AUTH', 'relay-challenge']);
+    await Promise.resolve();
+
+    const authFrame = socket.frames.find((frame) => frame[0] === 'AUTH');
+    expect(authFrame).toMatchObject([
+      'AUTH',
+      {
+        kind: 22242,
+        tags: [
+          ['relay', 'wss://relay.example.test/'],
+          ['challenge', 'relay-challenge'],
+        ],
+      },
+    ]);
+    socket.receive([
+      'OK',
+      (authFrame![1] as { id: string }).id,
+      true,
+      'authenticated',
+    ]);
+    await Promise.resolve();
+
+    expect(socket.frames).toContainEqual(['EVENT', event]);
+    socket.receive(['OK', event.id, true, 'stored']);
+    await expect(published).resolves.toBeUndefined();
+  });
+
+  it('uses the NIP-01 transport by default instead of requiring an opaque publisher', async () => {
+    const socket = new FakeRelaySocket();
+    const client = new BuzzAdapterClient({
+      relayUrl: 'wss://relay.example.test',
+      signer: deterministicSigner(),
+      socketFactory: () => socket,
+    });
+
+    const publishing = client.publishProposal({
+      channelId: 'proofline-demo-channel',
+      passportHash: 'a'.repeat(64),
+      message: 'Deploy revision demo-42.',
+    });
+    await waitFor(() => socket.onopen !== null);
+    socket.open();
+    await waitFor(() => socket.frames.some((frame) => frame[0] === 'EVENT'));
+
+    const eventFrame = socket.frames.find((frame) => frame[0] === 'EVENT');
+    expect(eventFrame).toBeDefined();
+    socket.receive([
+      'OK',
+      (eventFrame![1] as { id: string }).id,
+      true,
+      'stored',
+    ]);
+    await expect(publishing).resolves.toMatchObject({ kind: 9 });
+  });
+
   it('publishes a structured proposal through the supplied signer and transport', async () => {
     const published: unknown[] = [];
     const client = new BuzzAdapterClient({
@@ -49,7 +123,7 @@ describe('Buzz relay adapter', () => {
 
   it('reads an approval only from the supplied provenance reader', async () => {
     const approval = {
-      decision: 'approve' as const,
+      decision: 'approved' as const,
       eventId: 'a'.repeat(64),
       proposalEventId: 'b'.repeat(64),
       reviewerPubkey: 'c'.repeat(64),
@@ -82,6 +156,38 @@ describe('Buzz relay adapter', () => {
     },
   );
 });
+
+class FakeRelaySocket {
+  readonly frames: unknown[][] = [];
+  onopen: (() => void) | null = null;
+  onmessage: ((event: { data: string }) => void) | null = null;
+  onerror: (() => void) | null = null;
+  onclose: (() => void) | null = null;
+
+  send(data: string): void {
+    this.frames.push(JSON.parse(data) as unknown[]);
+  }
+
+  close(): void {
+    this.onclose?.();
+  }
+
+  open(): void {
+    this.onopen?.();
+  }
+
+  receive(frame: unknown[]): void {
+    this.onmessage?.({ data: JSON.stringify(frame) });
+  }
+}
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    if (predicate()) return;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  throw new Error('Timed out waiting for relay state.');
+}
 
 function deterministicSigner() {
   const pubkey = bytesToHex(schnorr.getPublicKey(hexToBytes(testPrivateKey)));

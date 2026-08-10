@@ -1,6 +1,6 @@
 import type { VerifiedBuzzEvent } from './event-codec.js';
 
-export type ApprovalDecision = 'approve' | 'reject' | 'request_changes';
+export type ApprovalDecision = 'approved' | 'rejected' | 'request_changes';
 
 export interface ApprovalObservation {
   decision: ApprovalDecision;
@@ -18,6 +18,7 @@ export interface ApprovalParseError {
     | 'missing_proposal_reference'
     | 'wrong_channel'
     | 'unknown_reviewer'
+    | 'self_approval'
     | 'unrecognized_decision';
   message: string;
   retryable: false;
@@ -27,8 +28,12 @@ export interface ApprovalParserContext {
   proposalEventId: string;
   workspaceId: string;
   channelId: string;
-  reviewerPubkeys: ReadonlySet<string>;
-  proposal: { workspaceId: string; channelId: string } | null;
+  reviewerIdentities: ReadonlyMap<string, { active: boolean }>;
+  proposal: {
+    workspaceId: string;
+    channelId: string;
+    proposerPubkey: string;
+  } | null;
 }
 
 export function parseApprovalEvent(
@@ -68,10 +73,16 @@ export function parseApprovalEvent(
       'Buzz event channel does not match the proposal.',
     );
   }
-  if (!context.reviewerPubkeys.has(event.pubkey)) {
+  if (context.reviewerIdentities.get(event.pubkey)?.active !== true) {
     return error(
       'unknown_reviewer',
       'Buzz signer is not an authorized reviewer.',
+    );
+  }
+  if (event.pubkey === context.proposal.proposerPubkey) {
+    return error(
+      'self_approval',
+      'Proposal proposer cannot approve their own proposal.',
     );
   }
 
@@ -111,8 +122,8 @@ function matchesChannelWhenPresent(
 
 function decisionFor(event: VerifiedBuzzEvent): ApprovalDecision | null {
   if (event.kind === 7) {
-    if (['+', '✅', '👍'].includes(event.content)) return 'approve';
-    if (['-', '❌', '👎'].includes(event.content)) return 'reject';
+    if (['+', '✅', '👍'].includes(event.content)) return 'approved';
+    if (['-', '❌', '👎'].includes(event.content)) return 'rejected';
     return null;
   }
   if (event.kind !== 9) return null;
@@ -130,8 +141,8 @@ function parseMessageContent(
     const proofline = (parsed as Record<string, unknown>).proofline;
     if (typeof proofline !== 'object' || proofline === null) return null;
     const decision = (proofline as Record<string, unknown>).decision;
-    return decision === 'approve' ||
-      decision === 'reject' ||
+    return decision === 'approved' ||
+      decision === 'rejected' ||
       decision === 'request_changes'
       ? { proofline: { decision } }
       : null;

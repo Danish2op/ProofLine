@@ -14,6 +14,7 @@ const migrationNames = [
   '0006_pgcrypto_compatibility.sql',
   '0007_task_6_authz_hardening.sql',
   '0008_task_7_buzz_provenance.sql',
+  '0009_task_7_verified_buzz_approval.sql',
 ] as const;
 
 const dbUrl = process.env.SUPABASE_DB_URL;
@@ -126,10 +127,116 @@ async function verifyLiveDatabase(client: Client): Promise<void> {
     assert.equal(draft.rowCount, 1, 'DRAFT passport insert was rejected');
   });
 
+  const verifiedBuzzRpcAvailable = await hasVerifiedBuzzApprovalRpc(client);
   await runAsServiceRole(client, async () => {
     await verifyExecutionExpiry(client, contextA, workspaceA);
     await verifyPopulatedDemoCleanup(client, contextA, workspaceA);
+    if (verifiedBuzzRpcAvailable) {
+      await verifyVerifiedBuzzApprovalRpc(client, contextA, workspaceA);
+    } else {
+      console.log(
+        'SKIPPED: verified Buzz approval RPC is not installed in this database.',
+      );
+    }
   });
+
+  if (verifiedBuzzRpcAvailable) {
+    await runAsAuthenticated(client, userA, async () => {
+      await expectFailure(
+        client,
+        "select public.apply_verified_buzz_approval($1, $2, current_timestamp, current_timestamp + interval '1 hour', 'wss://relay.example.test/', $3::jsonb)",
+        [workspaceA, randomUUID(), JSON.stringify(validBuzzEvent('a', 'b'))],
+        'permission denied',
+      );
+    });
+  }
+}
+
+async function hasVerifiedBuzzApprovalRpc(client: Client): Promise<boolean> {
+  const result = await client.query<{ present: boolean }>(
+    "select to_regprocedure('public.apply_verified_buzz_approval(uuid,uuid,timestamptz,timestamptz,text,jsonb)') is not null as present",
+  );
+  return result.rows[0]?.present === true;
+}
+
+async function verifyVerifiedBuzzApprovalRpc(
+  client: Client,
+  context: ProbeContext,
+  workspaceId: string,
+): Promise<void> {
+  const actionPassport = await client.query<{ id: string }>(
+    `${insertPassportSql()} returning id`,
+    passportValues(context, workspaceId, 'DRAFT', null, true),
+  );
+  const actionPassportId = actionPassport.rows[0]?.id;
+  assert.ok(actionPassportId, 'Buzz RPC probe passport was not created');
+  await client.query(
+    'update public.action_passports set status = $1 where id = $2',
+    ['PENDING_APPROVAL', actionPassportId],
+  );
+
+  const proposerPubkey = '1'.repeat(64);
+  const reviewerPubkey = '2'.repeat(64);
+  const proposalEventId = '3'.repeat(64);
+  await client.query(
+    `insert into public.buzz_event_provenance (
+      workspace_id, action_passport_id, buzz_event_id, channel_id, relay_url,
+      signer_pubkey, event_kind, event_created_at, raw_event_hash,
+      signature_verified, raw_event_json
+    ) values ($1, $2, $3, $4, $5, $6, 9, 1700000000, $3, true, $7::jsonb)`,
+    [
+      workspaceId,
+      actionPassportId,
+      proposalEventId,
+      'proofline-rpc-probe',
+      'wss://relay.example.test/',
+      proposerPubkey,
+      JSON.stringify(validBuzzEvent('3', '1', [['h', 'proofline-rpc-probe']])),
+    ],
+  );
+  await client.query(
+    'insert into public.buzz_reviewer_identities (workspace_id, pubkey) values ($1, $2)',
+    [workspaceId, reviewerPubkey],
+  );
+
+  const reaction = validBuzzEvent('4', '2', [['e', proposalEventId]]);
+  const applied = await client.query<{ result: string }>(
+    "select public.apply_verified_buzz_approval($1, $2, current_timestamp, current_timestamp + interval '1 hour', 'wss://relay.example.test/', $3::jsonb) as result",
+    [workspaceId, actionPassportId, JSON.stringify(reaction)],
+  );
+  assert.equal(applied.rows[0]?.result, 'applied');
+
+  const replay = await client.query<{ result: string }>(
+    "select public.apply_verified_buzz_approval($1, $2, current_timestamp, current_timestamp + interval '1 hour', 'wss://relay.example.test/', $3::jsonb) as result",
+    [workspaceId, actionPassportId, JSON.stringify(reaction)],
+  );
+  assert.equal(replay.rows[0]?.result, 'duplicate');
+
+  const selfApproval = await client.query<{ result: string }>(
+    "select public.apply_verified_buzz_approval($1, $2, current_timestamp, current_timestamp + interval '1 hour', 'wss://relay.example.test/', $3::jsonb) as result",
+    [
+      workspaceId,
+      actionPassportId,
+      JSON.stringify(validBuzzEvent('5', '1', [['e', proposalEventId]])),
+    ],
+  );
+  assert.equal(selfApproval.rows[0]?.result, 'rejected');
+}
+
+function validBuzzEvent(
+  eventNibble: string,
+  signerNibble: string,
+  tags: string[][] = [],
+): Record<string, unknown> {
+  return {
+    id: eventNibble.repeat(64),
+    pubkey: signerNibble.repeat(64),
+    created_at: 1_700_000_000,
+    kind: 7,
+    tags,
+    content: '+',
+    sig: 'f'.repeat(128),
+  };
 }
 
 async function verifyPgcryptoCompatibility(client: Client): Promise<void> {

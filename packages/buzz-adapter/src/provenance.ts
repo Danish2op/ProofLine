@@ -1,50 +1,4 @@
-import {
-  isValidLifecycleTransition,
-  type ActionLifecycleStatus,
-} from '@proofline/domain';
-
-import type { ApprovalObservation } from './approval-parser.js';
-
-export type ProvenanceRecordStatus = 'stored' | 'duplicate';
-
-export interface ApprovalTransitionResult {
-  status: 'applied' | 'duplicate' | 'recorded_unapplied';
-  nextStatus: ActionLifecycleStatus | null;
-}
-
-/**
- * Small deterministic projection used by workers after their database
- * transaction has loaded the current passport state. Each event ID is retained
- * before a transition is considered, so a relay replay cannot apply twice.
- */
-export class EventProvenanceLayer {
-  private readonly seenEventIds = new Set<string>();
-
-  recordEvent(eventId: string): ProvenanceRecordStatus {
-    if (this.seenEventIds.has(eventId)) return 'duplicate';
-    this.seenEventIds.add(eventId);
-    return 'stored';
-  }
-
-  recordApproval(
-    observation: ApprovalObservation,
-    currentStatus: ActionLifecycleStatus,
-  ): ApprovalTransitionResult {
-    if (this.recordEvent(observation.eventId) === 'duplicate') {
-      return { status: 'duplicate', nextStatus: null };
-    }
-
-    const nextStatus = lifecycleStatusFor(observation.decision);
-    if (
-      currentStatus !== 'PENDING_APPROVAL' ||
-      !nextStatus ||
-      !isValidLifecycleTransition(currentStatus, nextStatus)
-    ) {
-      return { status: 'recorded_unapplied', nextStatus: null };
-    }
-    return { status: 'applied', nextStatus };
-  }
-}
+import { verifyEvent, type VerifiedBuzzEvent } from './event-codec.js';
 
 export type BuzzFailureCode =
   | 'network_timeout'
@@ -58,10 +12,47 @@ export function isRetryableBuzzFailure(code: BuzzFailureCode): boolean {
   return code === 'network_timeout' || code === 'relay_unavailable';
 }
 
-function lifecycleStatusFor(
-  decision: ApprovalObservation['decision'],
-): ActionLifecycleStatus | null {
-  if (decision === 'approve') return 'APPROVED';
-  if (decision === 'reject') return 'BLOCKED';
-  return null;
+export interface BuzzProvenanceRpc {
+  call(name: string, args: Record<string, unknown>): Promise<string>;
+}
+
+export class DatabaseProvenanceWriter {
+  constructor(private readonly rpc: BuzzProvenanceRpc) {}
+
+  async recordAndApply(input: {
+    event: VerifiedBuzzEvent;
+    workspaceId: string;
+    actionPassportId: string;
+    approvedAt: string;
+    expiresAt: string;
+    relayUrl: string;
+  }): Promise<string> {
+    const rawEvent = {
+      id: input.event.id,
+      pubkey: input.event.pubkey,
+      created_at: input.event.createdAt,
+      kind: input.event.kind,
+      tags: input.event.tags,
+      content: input.event.content,
+      sig: input.event.sig,
+    };
+    const verification = verifyEvent(rawEvent);
+    if (
+      'code' in verification ||
+      verification.rawHash !== input.event.rawHash
+    ) {
+      throw new Error(
+        'Provenance RPC requires a cryptographically verified Buzz event.',
+      );
+    }
+
+    return this.rpc.call('apply_verified_buzz_approval', {
+      target_workspace_id: input.workspaceId,
+      target_action_passport_id: input.actionPassportId,
+      source_approved_at: input.approvedAt,
+      source_expires_at: input.expiresAt,
+      source_relay_url: input.relayUrl,
+      source_raw_event_json: rawEvent,
+    });
+  }
 }

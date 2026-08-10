@@ -121,3 +121,92 @@ Tests  24 passed | 1 skipped (25)
 - `SUPABASE_DB_URL` was unset, so the live database/migration probe was also
   skipped. Migration `0008` is committed but was not applied from this task.
 - Commit: `699b295b236b093557dd2ebddb56bcb4cf05e1f1` (`feat: add buzz provenance adapter`).
+
+## Fix Round 1 (2026-08-10)
+
+### Status
+
+`DONE_WITH_CONCERNS`. The Task 7
+adapter now has a concrete NIP-01 WebSocket transport, handles a NIP-42
+`AUTH` challenge by signing and framing a kind `22242` event, and only reports
+publish success after the relay sends a NIP-01 `OK` success frame. The live
+test remains conditional and makes no authentication or publish claim when its
+environment variables are absent.
+
+The prior process-local replay set was removed. `DatabaseProvenanceWriter`
+re-verifies the raw signed Nostr event and invokes exactly one server-only RPC.
+Forward-only migration `0009_task_7_verified_buzz_approval.sql` records
+provenance and applies the lifecycle transition in that same transaction.
+The RPC derives identity, references, channel, and decision from raw event
+data; it accepts neither a caller-supplied hash nor a caller-supplied
+`signature_verified` state or decision. It validates an active row in the
+server-owned reviewer identity set and rejects the proposal proposer.
+
+### RED / GREEN evidence
+
+| Defect | RED evidence | GREEN evidence |
+| --- | --- | --- |
+| Concrete relay/auth transport | `pnpm vitest run tests/integration/buzz-adapter/relay.test.ts` initially failed because `Nip01RelayTransport` was absent. | Same command: `4 passed, 1 skipped`; the deterministic socket test observes `AUTH` kind 22242 and waits for `OK`. |
+| Reviewer activation and self-approval | `pnpm vitest run tests/unit/buzz-adapter/approval-parser.test.ts` failed: expected `self_approval`, received `decision: approve`; then the inactive-reviewer case failed by returning an approval. | Same command: `8 passed`; inactive and proposer identities fail closed. |
+| Canonical decisions | `pnpm vitest run tests/unit/buzz-adapter/approval-parser.test.ts tests/unit/buzz-adapter/provenance.test.ts tests/integration/buzz-adapter/relay.test.ts` failed with expected `approved`/`rejected`, received `approve`/`reject`. | Same command: `15 passed, 1 skipped`; parser, TypeScript, and SQL now use `approved`/`rejected`. |
+| Forged verification state | `pnpm vitest run tests/unit/buzz-adapter/provenance.test.ts` failed because a fabricated `VerifiedBuzzEvent` reached the RPC. | Same command: `3 passed`; the writer recomputes hash/signature from raw event before calling the RPC. |
+| RPC decision trust boundary | `pnpm vitest run tests/unit/buzz-adapter/provenance.test.ts` failed because the RPC payload contained `source_decision`. | Same command: `3 passed`; the RPC receives the raw event only and derives the decision. |
+| Forward migration/probe | `pnpm vitest run tests/integration/database/constraints.test.ts` failed: expected `0009_task_7_verified_buzz_approval.sql` to exist, received `false`. | Same command: `11 passed`; the executable database probe includes RPC, replay, self-approval, and service-role checks when configured. |
+| Clean package build | `pnpm vitest run tests/unit/buzz-adapter/package-boundary.test.ts` failed after deleting generated `dist` directories (build exit `2`). | Same command: `1 passed`; adapter build explicitly builds the domain dependency. |
+
+Focused verification after the final code changes:
+
+```text
+pnpm vitest run tests/unit/buzz-adapter/provenance.test.ts tests/unit/buzz-adapter/approval-parser.test.ts tests/integration/buzz-adapter/relay.test.ts tests/unit/buzz-adapter/package-boundary.test.ts tests/integration/database/constraints.test.ts
+Test Files  5 passed (5)
+Tests  27 passed | 1 skipped (28)
+
+pnpm typecheck
+$ tsc --noEmit
+
+pnpm db:verify
+SKIPPED: set SUPABASE_DB_URL to run live Supabase database probes.
+```
+
+Final requested focused verification (after stopping the interrupted broad
+suite command):
+
+```text
+pnpm vitest run tests/unit/buzz-adapter tests/integration/buzz-adapter
+Test Files  5 passed (5)
+Tests  19 passed | 1 skipped (20)
+
+pnpm typecheck
+$ tsc --noEmit
+```
+
+There were no focused-test or typecheck failures. The one skipped test is the
+credential-gated live relay test described below.
+
+Fix commit: `fix: harden buzz approval provenance` (this report is included in
+the same commit; see repository history for its final object ID).
+
+### Changed files
+
+- `packages/buzz-adapter/src/relay-transport.ts` (new NIP-01/NIP-42 transport)
+- `packages/buzz-adapter/src/{client,approval-parser,provenance,index}.ts`
+- `packages/buzz-adapter/package.json`
+- `supabase/migrations/0009_task_7_verified_buzz_approval.sql`
+- `scripts/verify-supabase-db.ts`
+- `tests/integration/buzz-adapter/relay.test.ts`
+- `tests/integration/database/migration-test-helpers.ts`
+- `tests/unit/buzz-adapter/{approval-parser,package-boundary,provenance}.test.ts`
+
+### Self-review and limitations
+
+- `0001` and all Task 8+ files were unchanged. The obsolete, separately
+  callable provenance/transition RPCs are revoked in migration 0009.
+- Standard NIP-25 reactions are accepted with an `e` reference only; any `h`
+  tag is checked against the stored proposal channel.
+- The database probe uses deterministic envelope-shaped rows only to exercise
+  transactional/RLS behavior; cryptographic verification remains at the
+  server-owned TypeScript boundary and is covered with a deterministic BIP-340
+  signature test. No private keys or credentials were added.
+- `BUZZ_RELAY_URL`, `BUZZ_DEMO_CHANNEL`, and `SUPABASE_DB_URL` were absent, so
+  neither the live relay nor live database probe authenticated, published, or
+  claimed success. These are the remaining credential-gated limitations.

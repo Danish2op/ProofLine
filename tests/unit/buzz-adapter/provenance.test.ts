@@ -1,55 +1,18 @@
+import { createHash } from 'node:crypto';
+
+import { schnorr } from '@noble/curves/secp256k1.js';
 import { describe, expect, it } from 'vitest';
 
 import {
-  EventProvenanceLayer,
+  DatabaseProvenanceWriter,
   isRetryableBuzzFailure,
 } from '../../../packages/buzz-adapter/src/provenance.js';
+import {
+  verifyEvent,
+  type VerifiedBuzzEvent,
+} from '../../../packages/buzz-adapter/src/event-codec.js';
 
 describe('Buzz event provenance', () => {
-  it('records a replayed event ID as duplicate without applying a second approval transition', () => {
-    const provenance = new EventProvenanceLayer();
-    const observation = {
-      decision: 'approve' as const,
-      eventId: 'a'.repeat(64),
-      proposalEventId: 'b'.repeat(64),
-      reviewerPubkey: 'c'.repeat(64),
-      workspaceId: 'f2e0b809-2d1d-43cd-85c5-99522d4f0611',
-      channelId: 'proofline-demo-channel',
-    };
-
-    expect(provenance.recordApproval(observation, 'PENDING_APPROVAL')).toEqual({
-      status: 'applied',
-      nextStatus: 'APPROVED',
-    });
-    expect(provenance.recordApproval(observation, 'PENDING_APPROVAL')).toEqual({
-      status: 'duplicate',
-      nextStatus: null,
-    });
-  });
-
-  it('records an out-of-order decision without replacing an already-applied approval transition', () => {
-    const provenance = new EventProvenanceLayer();
-    const approved = {
-      decision: 'approve' as const,
-      eventId: 'a'.repeat(64),
-      proposalEventId: 'b'.repeat(64),
-      reviewerPubkey: 'c'.repeat(64),
-      workspaceId: 'f2e0b809-2d1d-43cd-85c5-99522d4f0611',
-      channelId: 'proofline-demo-channel',
-    };
-
-    expect(provenance.recordApproval(approved, 'PENDING_APPROVAL')).toEqual({
-      status: 'applied',
-      nextStatus: 'APPROVED',
-    });
-    expect(
-      provenance.recordApproval(
-        { ...approved, eventId: 'd'.repeat(64), decision: 'reject' },
-        'APPROVED',
-      ),
-    ).toEqual({ status: 'recorded_unapplied', nextStatus: null });
-  });
-
   it('retries only explicitly transient relay failures', () => {
     expect(isRetryableBuzzFailure('network_timeout')).toBe(true);
     expect(isRetryableBuzzFailure('relay_unavailable')).toBe(true);
@@ -58,4 +21,111 @@ describe('Buzz event provenance', () => {
     expect(isRetryableBuzzFailure('malformed_event')).toBe(false);
     expect(isRetryableBuzzFailure('policy_denied')).toBe(false);
   });
+
+  it('sends only the verified raw event to the guarded provenance RPC', async () => {
+    const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+    const writer = new DatabaseProvenanceWriter({
+      async call(name, args) {
+        calls.push({ name, args });
+        return 'applied';
+      },
+    });
+    const event = signedVerifiedEvent();
+
+    await expect(
+      writer.recordAndApply({
+        event,
+        workspaceId: 'f2e0b809-2d1d-43cd-85c5-99522d4f0611',
+        actionPassportId: '5fa2a464-8c93-4452-aa65-83e92a7a9e1f',
+        approvedAt: '2026-08-10T00:00:00.000Z',
+        expiresAt: '2026-08-10T01:00:00.000Z',
+        relayUrl: 'wss://relay.example.test/',
+      }),
+    ).resolves.toBe('applied');
+
+    expect(calls).toEqual([
+      {
+        name: 'apply_verified_buzz_approval',
+        args: {
+          target_workspace_id: 'f2e0b809-2d1d-43cd-85c5-99522d4f0611',
+          target_action_passport_id: '5fa2a464-8c93-4452-aa65-83e92a7a9e1f',
+          source_approved_at: '2026-08-10T00:00:00.000Z',
+          source_expires_at: '2026-08-10T01:00:00.000Z',
+          source_relay_url: 'wss://relay.example.test/',
+          source_raw_event_json: {
+            id: event.id,
+            pubkey: event.pubkey,
+            created_at: event.createdAt,
+            kind: event.kind,
+            tags: event.tags,
+            content: event.content,
+            sig: event.sig,
+          },
+        },
+      },
+    ]);
+  });
+
+  it('rejects a caller-labeled verified event whose raw signature cannot verify', async () => {
+    const writer = new DatabaseProvenanceWriter({
+      async call() {
+        return 'applied';
+      },
+    });
+
+    await expect(
+      writer.recordAndApply({
+        event: {
+          id: 'a'.repeat(64),
+          pubkey: 'b'.repeat(64),
+          createdAt: 1_700_000_000,
+          kind: 7,
+          tags: [['e', 'c'.repeat(64)]],
+          content: '+',
+          sig: 'd'.repeat(128),
+          rawHash: 'a'.repeat(64),
+        } as unknown as VerifiedBuzzEvent,
+        workspaceId: 'f2e0b809-2d1d-43cd-85c5-99522d4f0611',
+        actionPassportId: '5fa2a464-8c93-4452-aa65-83e92a7a9e1f',
+        approvedAt: '2026-08-10T00:00:00.000Z',
+        expiresAt: '2026-08-10T01:00:00.000Z',
+        relayUrl: 'wss://relay.example.test/',
+      }),
+    ).rejects.toThrow('cryptographically verified');
+  });
 });
+
+function signedVerifiedEvent(): VerifiedBuzzEvent {
+  const privateKey = '4'.repeat(64);
+  const pubkey = bytesToHex(schnorr.getPublicKey(hexToBytes(privateKey)));
+  const createdAt = 1_700_000_000;
+  const kind = 7;
+  const tags = [['e', 'c'.repeat(64)]];
+  const content = '+';
+  const id = createHash('sha256')
+    .update(JSON.stringify([0, pubkey, createdAt, kind, tags, content]))
+    .digest('hex');
+  const verified = verifyEvent({
+    id,
+    pubkey,
+    created_at: createdAt,
+    kind,
+    tags,
+    content,
+    sig: bytesToHex(schnorr.sign(hexToBytes(id), hexToBytes(privateKey))),
+  });
+  if ('code' in verified) throw new Error(verified.message);
+  return verified;
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  return Uint8Array.from(
+    hex.match(/.{2}/g)?.map((octet) => Number.parseInt(octet, 16)) ?? [],
+  );
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join(
+    '',
+  );
+}

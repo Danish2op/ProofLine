@@ -4,6 +4,7 @@ import {
   type BuzzAdapterError,
 } from './event-codec.js';
 import type { ApprovalObservation } from './approval-parser.js';
+import { Nip01RelayTransport, type RelaySocket } from './relay-transport.js';
 
 export interface BuzzEventRef {
   eventId: string;
@@ -70,16 +71,25 @@ export class BuzzClientError extends Error {
 
 export class BuzzAdapterClient {
   readonly relayUrl: string;
+  private readonly transport: BuzzTransport;
 
   constructor(
     private readonly options: {
       relayUrl: string;
       signer: BuzzSigner;
-      transport: BuzzTransport;
+      transport?: BuzzTransport;
+      socketFactory?: (relayUrl: string) => RelaySocket;
       approvalReader?: BuzzApprovalReader;
     },
   ) {
     this.relayUrl = normalizeRelayUrl(options.relayUrl);
+    this.transport =
+      options.transport ??
+      new Nip01RelayTransport({
+        relayUrl: this.relayUrl,
+        signer: options.signer,
+        socketFactory: options.socketFactory,
+      });
   }
 
   publishProposal(input: BuzzProposalInput): Promise<BuzzEventRef> {
@@ -152,7 +162,7 @@ export class BuzzAdapterClient {
     if (isAdapterError(verified)) {
       throw new BuzzClientError('invalid_signed_event', verified.message);
     }
-    await this.options.transport.publish(signed);
+    await this.transport.publish(signed);
 
     return {
       eventId: verified.id,

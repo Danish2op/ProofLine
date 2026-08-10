@@ -29,11 +29,11 @@ describe('Buzz approval parsing', () => {
         proposalEventId,
         workspaceId,
         channelId,
-        reviewerPubkeys: new Set([reviewerPubkey]),
-        proposal: { workspaceId, channelId },
+        reviewerIdentities: new Map([[reviewerPubkey, { active: true }]]),
+        proposal: { workspaceId, channelId, proposerPubkey: 'e'.repeat(64) },
       }),
     ).toEqual({
-      decision: 'approve',
+      decision: 'approved',
       eventId: expect.any(String),
       proposalEventId,
       reviewerPubkey,
@@ -59,10 +59,10 @@ describe('Buzz approval parsing', () => {
         proposalEventId,
         workspaceId,
         channelId,
-        reviewerPubkeys: new Set([reviewerPubkey]),
-        proposal: { workspaceId, channelId },
+        reviewerIdentities: new Map([[reviewerPubkey, { active: true }]]),
+        proposal: { workspaceId, channelId, proposerPubkey: 'e'.repeat(64) },
       }),
-    ).toMatchObject({ decision: 'reject' });
+    ).toMatchObject({ decision: 'rejected' });
   });
 
   it('rejects a reaction that claims a channel other than the stored proposal channel', () => {
@@ -85,8 +85,8 @@ describe('Buzz approval parsing', () => {
         proposalEventId,
         workspaceId,
         channelId,
-        reviewerPubkeys: new Set([reviewerPubkey]),
-        proposal: { workspaceId, channelId },
+        reviewerIdentities: new Map([[reviewerPubkey, { active: true }]]),
+        proposal: { workspaceId, channelId, proposerPubkey: 'e'.repeat(64) },
       }),
     ).toMatchObject({ code: 'wrong_channel', retryable: false });
   });
@@ -105,8 +105,54 @@ describe('Buzz approval parsing', () => {
         proposalEventId,
         workspaceId,
         channelId,
-        reviewerPubkeys: new Set(['d'.repeat(64)]),
-        proposal: { workspaceId, channelId },
+        reviewerIdentities: new Map([['d'.repeat(64), { active: true }]]),
+        proposal: { workspaceId, channelId, proposerPubkey: 'e'.repeat(64) },
+      }),
+    ).toMatchObject({ code: 'unknown_reviewer', retryable: false });
+  });
+
+  it('rejects an active reviewer who is also the stored proposal proposer', () => {
+    const reviewerPubkey = bytesToHex(
+      schnorr.getPublicKey(hexToBytes(testPrivateKey)),
+    );
+    const verified = verifyEvent(
+      signedEvent({
+        kind: 7,
+        tags: [['e', proposalEventId]],
+        content: '+',
+      }),
+    );
+
+    expect(
+      parseApprovalEvent(verified, {
+        proposalEventId,
+        workspaceId,
+        channelId,
+        reviewerIdentities: new Map([[reviewerPubkey, { active: true }]]),
+        proposal: { workspaceId, channelId, proposerPubkey: reviewerPubkey },
+      }),
+    ).toMatchObject({ code: 'self_approval', retryable: false });
+  });
+
+  it('rejects a reviewer identity that the server has revoked', () => {
+    const reviewerPubkey = bytesToHex(
+      schnorr.getPublicKey(hexToBytes(testPrivateKey)),
+    );
+    const verified = verifyEvent(
+      signedEvent({
+        kind: 7,
+        tags: [['e', proposalEventId]],
+        content: '+',
+      }),
+    );
+
+    expect(
+      parseApprovalEvent(verified, {
+        proposalEventId,
+        workspaceId,
+        channelId,
+        reviewerIdentities: new Map([[reviewerPubkey, { active: false }]]),
+        proposal: { workspaceId, channelId, proposerPubkey: 'e'.repeat(64) },
       }),
     ).toMatchObject({ code: 'unknown_reviewer', retryable: false });
   });
@@ -128,8 +174,8 @@ describe('Buzz approval parsing', () => {
         proposalEventId,
         workspaceId,
         channelId,
-        reviewerPubkeys: new Set([reviewerPubkey]),
-        proposal: { workspaceId, channelId },
+        reviewerIdentities: new Map([[reviewerPubkey, { active: true }]]),
+        proposal: { workspaceId, channelId, proposerPubkey: 'e'.repeat(64) },
       }),
     ).toMatchObject({ decision: 'request_changes' });
   });
@@ -151,8 +197,8 @@ describe('Buzz approval parsing', () => {
         proposalEventId,
         workspaceId,
         channelId,
-        reviewerPubkeys: new Set([reviewerPubkey]),
-        proposal: { workspaceId, channelId },
+        reviewerIdentities: new Map([[reviewerPubkey, { active: true }]]),
+        proposal: { workspaceId, channelId, proposerPubkey: 'e'.repeat(64) },
       }),
     ).toMatchObject({ code: 'unrecognized_decision', retryable: false });
   });
