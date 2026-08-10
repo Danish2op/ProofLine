@@ -19,4 +19,32 @@ describe('live Supabase verification harness', () => {
       'SKIPPED: set SUPABASE_DB_URL to run live Supabase database probes.',
     );
   });
+
+  it('refuses --apply before connecting unless disposal is explicitly confirmed', () => {
+    const result = spawnSync(
+      process.execPath,
+      [
+        '--experimental-strip-types',
+        'scripts/verify-supabase-db.ts',
+        '--apply',
+      ],
+      {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          SUPABASE_DB_URL: 'postgresql://localhost:6543/proofline',
+          SUPABASE_DB_VERIFY_DISPOSABLE: '',
+        },
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      'REFUSED: --apply requires SUPABASE_DB_VERIFY_DISPOSABLE=I_UNDERSTAND.',
+    );
+    expect(result.stderr).not.toContain(
+      'postgresql://localhost:6543/proofline',
+    );
+  });
 });

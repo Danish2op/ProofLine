@@ -10,9 +10,11 @@ const migrationNames = [
   '0002_rls_policies.sql',
   '0003_indexes_constraints.sql',
   '0004_task_5_hardening.sql',
+  '0005_task_5_review_hardening.sql',
 ] as const;
 
 const dbUrl = process.env.SUPABASE_DB_URL;
+const shouldApply = process.argv.includes('--apply');
 
 if (!dbUrl) {
   console.log(
@@ -21,11 +23,21 @@ if (!dbUrl) {
   process.exit(0);
 }
 
+if (
+  shouldApply &&
+  process.env.SUPABASE_DB_VERIFY_DISPOSABLE !== 'I_UNDERSTAND'
+) {
+  console.error(
+    'REFUSED: --apply requires SUPABASE_DB_VERIFY_DISPOSABLE=I_UNDERSTAND.',
+  );
+  process.exit(1);
+}
+
 const client = new Client({ connectionString: dbUrl });
 
 try {
   await client.connect();
-  if (process.argv.includes('--apply')) await applyMigrations(client);
+  if (shouldApply) await applyMigrations(client);
 
   await client.query('BEGIN');
   try {
@@ -109,6 +121,179 @@ async function verifyLiveDatabase(client: Client): Promise<void> {
     );
     assert.equal(draft.rowCount, 1, 'DRAFT passport insert was rejected');
   });
+
+  await runAsServiceRole(client, async () => {
+    await verifyExecutionExpiry(client, contextA, workspaceA);
+    await verifyPopulatedDemoCleanup(client, contextA, workspaceA);
+  });
+}
+
+async function verifyExecutionExpiry(
+  client: Client,
+  context: ProbeContext,
+  workspaceId: string,
+): Promise<void> {
+  const inserted = await client.query<{ id: string }>(
+    `${insertPassportSql()} returning id`,
+    passportValues(context, workspaceId, 'DRAFT', null, true),
+  );
+  const actionPassportId = inserted.rows[0]?.id;
+  assert.ok(actionPassportId, 'expiry probe passport was not created');
+
+  await client.query(
+    'update public.action_passports set status = $1 where id = $2',
+    ['PENDING_APPROVAL', actionPassportId],
+  );
+  await client.query(
+    `update public.action_passports
+       set status = 'APPROVED', approved_at = current_timestamp,
+           approval_expires_at = current_timestamp + interval '1 hour'
+     where id = $1`,
+    [actionPassportId],
+  );
+  await client.query(
+    `update public.action_passports
+       set approval_expires_at = current_timestamp - interval '1 second'
+     where id = $1`,
+    [actionPassportId],
+  );
+  await expectFailure(
+    client,
+    'update public.action_passports set status = $1 where id = $2',
+    ['EXECUTING', actionPassportId],
+    'approved action requires an unexpired approval',
+  );
+  await client.query(
+    `update public.action_passports
+       set approval_expires_at = current_timestamp + interval '1 hour'
+     where id = $1`,
+    [actionPassportId],
+  );
+  await client.query(
+    'update public.action_passports set status = $1 where id = $2',
+    ['EXECUTING', actionPassportId],
+  );
+  await client.query(
+    `update public.action_passports
+       set approval_expires_at = current_timestamp - interval '1 second'
+     where id = $1`,
+    [actionPassportId],
+  );
+  const completion = await client.query(
+    'update public.action_passports set status = $1 where id = $2',
+    ['SUCCEEDED', actionPassportId],
+  );
+  assert.equal(
+    completion.rowCount,
+    1,
+    'completion after execution was rejected',
+  );
+}
+
+async function verifyPopulatedDemoCleanup(
+  client: Client,
+  context: ProbeContext,
+  workspaceId: string,
+): Promise<void> {
+  const demoRunId = randomUUID();
+  await client.query(
+    'insert into public.demo_runs (id, workspace_id, label, reset_key) values ($1, $2, $3, $4)',
+    [
+      demoRunId,
+      workspaceId,
+      'Synthetic populated cleanup probe',
+      `cleanup-${demoRunId}`,
+    ],
+  );
+  const inserted = await client.query<{ id: string }>(
+    `${insertPassportSql()} returning id`,
+    passportValues(context, workspaceId, 'DRAFT', demoRunId),
+  );
+  const actionPassportId = inserted.rows[0]?.id;
+  assert.ok(actionPassportId, 'demo cleanup passport was not created');
+
+  const executionAttemptId = randomUUID();
+  await client.query(
+    'insert into public.action_revisions (workspace_id, action_passport_id, revision_number, passport_hash, payload_json) values ($1, $2, 1, $3, $4::jsonb)',
+    [
+      workspaceId,
+      actionPassportId,
+      'd'.repeat(64),
+      JSON.stringify({ synthetic: true }),
+    ],
+  );
+  await client.query(
+    "insert into public.evidence_items (workspace_id, action_passport_id, evidence_id, source, content_hash, collected_at, expires_at) values ($1, $2, $3, $4, $5, current_timestamp, current_timestamp + interval '1 hour')",
+    [
+      workspaceId,
+      actionPassportId,
+      `evidence-${demoRunId}`,
+      'synthetic',
+      'e'.repeat(64),
+    ],
+  );
+  await client.query(
+    "insert into public.approval_events (workspace_id, action_passport_id, event_id, decision, actor_pubkey, approved_at, expires_at, raw_event_json) values ($1, $2, $3, $4, $5, current_timestamp, current_timestamp + interval '1 hour', $6::jsonb)",
+    [
+      workspaceId,
+      actionPassportId,
+      `approval-${demoRunId}`,
+      'approved',
+      'f'.repeat(64),
+      JSON.stringify({ synthetic: true }),
+    ],
+  );
+  await client.query(
+    'insert into public.execution_attempts (id, workspace_id, action_passport_id, attempt_number) values ($1, $2, $3, 1)',
+    [executionAttemptId, workspaceId, actionPassportId],
+  );
+  await client.query(
+    'insert into public.execution_receipts (workspace_id, execution_attempt_id, receipt_hash, receipt_json) values ($1, $2, $3, $4::jsonb)',
+    [
+      workspaceId,
+      executionAttemptId,
+      '1'.repeat(64),
+      JSON.stringify({ synthetic: true }),
+    ],
+  );
+  await client.query(
+    'insert into public.buzz_events (workspace_id, action_passport_id, buzz_event_id, event_kind, signer_pubkey, raw_event_json) values ($1, $2, $3, $4, $5, $6::jsonb)',
+    [
+      workspaceId,
+      actionPassportId,
+      `buzz-${demoRunId}`,
+      'synthetic',
+      '2'.repeat(64),
+      JSON.stringify({ synthetic: true }),
+    ],
+  );
+  await client.query(
+    'insert into public.outbox_jobs (workspace_id, action_passport_id, job_type, payload_json) values ($1, $2, $3, $4::jsonb)',
+    [
+      workspaceId,
+      actionPassportId,
+      'synthetic.cleanup',
+      JSON.stringify({ synthetic: true }),
+    ],
+  );
+
+  await client.query('select public.cleanup_demo_run($1)', [demoRunId]);
+  await client.query('select public.cleanup_demo_run($1)', [demoRunId]);
+
+  const remaining = await client.query<{ remaining: string }>(
+    `select count(*)::text as remaining from public.demo_runs where id = $1
+     union all select count(*)::text from public.action_passports where id = $2
+     union all select count(*)::text from public.action_revisions where action_passport_id = $2
+     union all select count(*)::text from public.evidence_items where action_passport_id = $2
+     union all select count(*)::text from public.approval_events where action_passport_id = $2
+     union all select count(*)::text from public.execution_attempts where action_passport_id = $2
+     union all select count(*)::text from public.buzz_events where action_passport_id = $2
+     union all select count(*)::text from public.outbox_jobs where action_passport_id = $2`,
+    [demoRunId, actionPassportId],
+  );
+  for (const row of remaining.rows) {
+    assert.equal(row.remaining, '0', 'demo cleanup left a dependent row');
+  }
 }
 
 async function createWorkspaceProbeFixture(
@@ -195,6 +380,21 @@ async function runAsAuthenticated(
   }
 }
 
+async function runAsServiceRole(
+  client: Client,
+  operation: () => Promise<void>,
+): Promise<void> {
+  await client.query('set local role service_role');
+  await client.query(
+    "select set_config('request.jwt.claim.role', 'service_role', true)",
+  );
+  try {
+    await operation();
+  } finally {
+    await client.query('reset role');
+  }
+}
+
 async function expectFailure(
   client: Client,
   sql: string,
@@ -217,14 +417,16 @@ async function expectFailure(
 function insertPassportSql(): string {
   return `insert into public.action_passports (
     workspace_id, action_id, passport_hash, status, agent_id, tool_definition_id,
-    policy_id, target, environment, normalized_arguments, idempotency_key, approval_required
-  ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, false)`;
+    policy_id, demo_run_id, target, environment, normalized_arguments, idempotency_key, approval_required
+  ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13)`;
 }
 
 function passportValues(
   context: ProbeContext,
   workspaceId: string,
   status: string,
+  demoRunId: string | null = null,
+  approvalRequired = false,
 ): unknown[] {
   return [
     workspaceId,
@@ -234,10 +436,12 @@ function passportValues(
     context.agentId,
     context.toolDefinitionId,
     context.policyId,
+    demoRunId,
     'sandbox://synthetic-live-probe.example.invalid/staging',
     'staging',
     JSON.stringify({ synthetic: true }),
     `live-probe-${randomUUID()}`,
+    approvalRequired,
   ];
 }
 

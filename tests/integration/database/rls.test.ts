@@ -76,6 +76,22 @@ describe('Proofline tenant isolation and audit RLS', () => {
     );
   });
 
+  it('hardens SECURITY DEFINER helpers with a trusted search path', () => {
+    const hardening = migration('0005_task_5_review_hardening.sql');
+
+    expect(hardening).toContain(
+      'create or replace function public.is_workspace_member',
+    );
+    expect(hardening).toContain(
+      'create or replace function public.record_action_passport_audit',
+    );
+    expect(hardening).toContain('security definer');
+    expect(hardening).toContain('set search_path = pg_catalog, pg_temp');
+    expect(hardening).toContain('auth.uid()');
+    expect(hardening).toContain('public.workspace_members');
+    expect(hardening).toContain('public.digest');
+  });
+
   it('uses explicit service-role policies for worker-only aggregate writes', () => {
     const policies = migration('0002_rls_policies.sql');
 

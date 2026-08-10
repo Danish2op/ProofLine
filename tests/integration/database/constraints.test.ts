@@ -92,6 +92,18 @@ describe('Proofline database constraints', () => {
     expect(constraints).toContain("new.status <> 'draft'");
   });
 
+  it('requires an unexpired approval when execution starts but not when it completes', () => {
+    const hardening = migration('0005_task_5_review_hardening.sql');
+
+    expect(hardening).toContain("new.status in ('approved', 'executing')");
+    expect(hardening).not.toContain(
+      "new.status in ('approved', 'executing', 'succeeded')",
+    );
+    expect(hardening).toContain(
+      "raise exception 'approved action requires an unexpired approval'",
+    );
+  });
+
   it('rejects expired or structurally invalid approvals before they can be applied', () => {
     const constraints = allMigrations();
 
@@ -128,6 +140,22 @@ describe('Proofline database constraints', () => {
         '',
       ),
     ).not.toContain('on delete cascade');
+  });
+
+  it('provides an idempotent, ordered cleanup path for populated demo runs', () => {
+    const hardening = migration('0005_task_5_review_hardening.sql');
+
+    expect(hardening).toContain(
+      'create or replace function public.cleanup_demo_run',
+    );
+    expect(hardening).toContain('delete from public.execution_receipts');
+    expect(hardening).toContain('delete from public.execution_attempts');
+    expect(hardening).toContain('delete from public.action_revisions');
+    expect(hardening).toContain('delete from public.action_passports');
+    expect(hardening).toContain('delete from public.demo_runs');
+    expect(hardening).toContain(
+      "raise exception 'demo run cleanup requires service_role'",
+    );
   });
 
   it('adds indexes for tenant queries, Buzz deduplication, and outbox claims', () => {
