@@ -1,0 +1,96 @@
+# Task 3 Fix Round 1 Report
+
+Implementation commit: `b739870 fix: harden action passport invariants`
+
+## Scope
+
+This fix round remains within Task 3. It corrects RFC 8785-compatible
+canonicalization, shares JSON-safety validation between hashing and domain
+validation, invalidates approval on revisions, and hardens display redaction.
+
+## RED evidence
+
+The following failures were run and observed before their corresponding
+production fixes:
+
+1. `pnpm vitest run tests/unit/domain/action-passport.test.ts tests/unit/domain/canonicalization.test.ts`
+   - Exit code: `1`
+   - Result: `7 failed | 26 passed` tests across `2 failed` files.
+   - Observed failures: canonicalization NFC-normalized decomposed text and
+     rejected normalization-distinct keys; `validatePassport` accepted a
+     non-NFC target and accepted `undefined`, function, symbol, and bigint
+     values that `computePassportHash` rejected.
+2. `pnpm vitest run tests/unit/domain/action-passport.test.ts`
+   - Exit code: `1`
+   - Result: `1 failed | 23 passed` tests.
+   - Observed failure: a revision retained approval metadata and had no
+     `DRAFT` lifecycle status.
+3. `pnpm vitest run tests/unit/domain/canonicalization.test.ts`
+   - Exit code: `1`
+   - Result: `2 failed | 10 passed` tests.
+   - Observed failures: token-shaped root strings and token-shaped values in
+     arrays/key variants were returned unredacted.
+
+## GREEN evidence
+
+1. Shared JSON-safety and RFC-compatible canonicalization:
+   `pnpm vitest run tests/unit/domain/action-passport.test.ts tests/unit/domain/canonicalization.test.ts`
+   - Exit code: `0`
+   - Result: `33 passed` tests in `2 passed` files.
+2. Approval invalidation on revisions:
+   `pnpm vitest run tests/unit/domain/action-passport.test.ts`
+   - Exit code: `0`
+   - Result: `24 passed` tests in `1 passed` file.
+3. Recursive redaction:
+   `pnpm vitest run tests/unit/domain/canonicalization.test.ts`
+   - Exit code: `0`
+   - Result: `12 passed` tests in `1 passed` file.
+4. Expanded structural, nested-schema, null-revision, and terminal lifecycle
+   coverage:
+   `pnpm vitest run tests/unit/domain/action-passport.test.ts`
+   - Exit code: `0`
+   - Result: `37 passed` tests in `1 passed` file.
+
+## REFACTOR evidence
+
+Extracted the shared `packages/canonical/src/json-safe.ts` predicate and kept
+canonicalization as a serializer over prevalidated JSON-safe values. Applied
+Prettier, then ran:
+
+`pnpm vitest run tests/unit/domain/action-passport.test.ts tests/unit/domain/canonicalization.test.ts`
+
+- Exit code: `0`
+- Result: `49 passed` tests in `2 passed` files.
+
+## Final verification
+
+Ran as one fresh sequence before implementation commit:
+
+`pnpm format:check; pnpm typecheck; pnpm lint; pnpm test; pnpm build`
+
+- Exit code: `0`
+- `pnpm format:check`: all files matched Prettier style.
+- `pnpm typecheck`: passed.
+- `pnpm lint`: passed.
+- `pnpm test`: `57 passed` tests in `4 passed` files.
+- `pnpm build`: passed for `9 of 10` workspace projects.
+
+## Changed files
+
+- `packages/canonical/src/canonicalize.ts`
+- `packages/canonical/src/json-safe.ts`
+- `packages/canonical/src/redaction.ts`
+- `packages/domain/src/action.ts`
+- `packages/domain/package.json`
+- `pnpm-lock.yaml`
+- `tests/unit/domain/action-passport.test.ts`
+- `tests/unit/domain/canonicalization.test.ts`
+
+## Concerns
+
+- Domain input deliberately rejects non-NFC strings and keys before hashing;
+  canonical JSON itself preserves code points as required by RFC 8785.
+- Redaction covers explicit sensitive key variants, `secrets`/`credentials`
+  containers, and common token patterns. It cannot reliably identify every
+  arbitrary secret embedded in otherwise ordinary prose, so future adapters
+  should continue to provide explicit sensitive-field metadata.
