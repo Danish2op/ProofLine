@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "vitest run --passWithNoTests tests/e2e",
+    "buzz:smoke": "node --experimental-strip-types scripts/buzz-smoke.ts",
     "build": "pnpm -r --if-present run build",
     "format:check": "prettier --check ."
   },
