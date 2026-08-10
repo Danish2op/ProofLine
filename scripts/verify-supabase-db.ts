@@ -11,6 +11,7 @@ const migrationNames = [
   '0003_indexes_constraints.sql',
   '0004_task_5_hardening.sql',
   '0005_task_5_review_hardening.sql',
+  '0006_pgcrypto_compatibility.sql',
 ] as const;
 
 const dbUrl = process.env.SUPABASE_DB_URL;
@@ -67,6 +68,7 @@ async function applyMigrations(client: Client): Promise<void> {
 }
 
 async function verifyLiveDatabase(client: Client): Promise<void> {
+  await verifyPgcryptoCompatibility(client);
   const workspaceA = randomUUID();
   const workspaceB = randomUUID();
   const userA = randomUUID();
@@ -126,6 +128,18 @@ async function verifyLiveDatabase(client: Client): Promise<void> {
     await verifyExecutionExpiry(client, contextA, workspaceA);
     await verifyPopulatedDemoCleanup(client, contextA, workspaceA);
   });
+}
+
+async function verifyPgcryptoCompatibility(client: Client): Promise<void> {
+  const result = await client.query<{ hash: string }>(
+    'select proofline_internal.sha256_json(\'{"synthetic":true}\'::jsonb) as hash',
+  );
+  const hash = result.rows[0]?.hash;
+  assert.match(
+    hash ?? '',
+    /^[0-9a-f]{64}$/,
+    'pgcrypto compatibility wrapper did not return a SHA-256 hash',
+  );
 }
 
 async function verifyExecutionExpiry(

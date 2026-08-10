@@ -7,6 +7,7 @@ export const migrationNames = [
   '0003_indexes_constraints.sql',
   '0004_task_5_hardening.sql',
   '0005_task_5_review_hardening.sql',
+  '0006_pgcrypto_compatibility.sql',
 ] as const;
 
 export const tenantTables = [

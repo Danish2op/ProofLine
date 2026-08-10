@@ -47,4 +47,29 @@ describe('live Supabase verification harness', () => {
       'postgresql://localhost:6543/proofline',
     );
   });
+
+  it('does not reveal the supplied database URL when apply is refused', () => {
+    const databaseUrl =
+      'postgresql://proofline:secret@localhost:6543/proofline';
+    const result = spawnSync(
+      process.execPath,
+      [
+        '--experimental-strip-types',
+        'scripts/verify-supabase-db.ts',
+        '--apply',
+      ],
+      {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          SUPABASE_DB_URL: databaseUrl,
+          SUPABASE_DB_VERIFY_DISPOSABLE: '',
+        },
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).not.toContain(databaseUrl);
+  });
 });

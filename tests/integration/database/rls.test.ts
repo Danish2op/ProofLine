@@ -89,7 +89,26 @@ describe('Proofline tenant isolation and audit RLS', () => {
     expect(hardening).toContain('set search_path = pg_catalog, pg_temp');
     expect(hardening).toContain('auth.uid()');
     expect(hardening).toContain('public.workspace_members');
-    expect(hardening).toContain('public.digest');
+    expect(hardening).toContain('proofline_internal.sha256_json');
+  });
+
+  it('resolves pgcrypto hashing through the installed extension schema', () => {
+    const hardening = migration('0006_pgcrypto_compatibility.sql');
+
+    expect(hardening).toContain(
+      'create schema if not exists proofline_internal',
+    );
+    expect(hardening).toContain(
+      'create or replace function proofline_internal.sha256_json',
+    );
+    expect(hardening).toContain("where extension.extname = 'pgcrypto'");
+    expect(hardening).toContain('pg_catalog.format');
+    expect(hardening).toContain('pg_catalog.to_regprocedure');
+    expect(hardening).toContain('set search_path = pg_catalog, pg_temp');
+    expect(hardening).not.toContain('public.digest');
+    expect(hardening).toContain(
+      'create or replace function public.record_action_passport_audit',
+    );
   });
 
   it('uses explicit service-role policies for worker-only aggregate writes', () => {
