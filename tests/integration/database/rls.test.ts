@@ -41,6 +41,41 @@ describe('Proofline tenant isolation and audit RLS', () => {
     expect(policies).not.toMatch(/create policy[^;]+to anon/i);
   });
 
+  it('grants only the authenticated Data API privileges backed by tenant RLS', () => {
+    const hardening = migration('0004_task_5_hardening.sql');
+
+    expect(hardening).toContain(
+      'grant usage on schema public to authenticated',
+    );
+    expect(hardening).toContain(
+      'grant select on table public.workspaces, public.workspace_members, public.agents, public.tool_definitions, public.policies, public.action_passports, public.action_revisions, public.evidence_items, public.approval_events, public.execution_attempts, public.execution_receipts, public.buzz_events, public.audit_events, public.outbox_jobs, public.demo_runs to authenticated',
+    );
+    expect(hardening).toContain(
+      'grant insert on table public.action_passports, public.approval_events, public.demo_runs to authenticated',
+    );
+    expect(hardening).toContain(
+      'grant execute on function public.is_workspace_member(uuid, text[]) to authenticated',
+    );
+    expect(hardening).not.toContain(
+      'grant update on table public.action_passports to authenticated',
+    );
+    expect(hardening).not.toContain(
+      'grant delete on table public.action_passports to authenticated',
+    );
+  });
+
+  it('grants worker operations only to the service role', () => {
+    const hardening = migration('0004_task_5_hardening.sql');
+
+    expect(hardening).toContain('grant usage on schema public to service_role');
+    expect(hardening).toContain(
+      'grant select, insert, update, delete on table public.workspaces, public.workspace_members, public.agents, public.tool_definitions, public.policies, public.action_passports, public.action_revisions, public.evidence_items, public.approval_events, public.execution_attempts, public.execution_receipts, public.buzz_events, public.audit_events, public.outbox_jobs, public.demo_runs to service_role',
+    );
+    expect(hardening).toContain(
+      'grant execute on function public.is_workspace_member(uuid, text[]) to service_role',
+    );
+  });
+
   it('uses explicit service-role policies for worker-only aggregate writes', () => {
     const policies = migration('0002_rls_policies.sql');
 

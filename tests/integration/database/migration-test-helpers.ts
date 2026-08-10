@@ -5,6 +5,7 @@ export const migrationNames = [
   '0001_initial_schema.sql',
   '0002_rls_policies.sql',
   '0003_indexes_constraints.sql',
+  '0004_task_5_hardening.sql',
 ] as const;
 
 export const tenantTables = [

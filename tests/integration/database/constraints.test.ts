@@ -60,14 +60,28 @@ describe('Proofline database constraints', () => {
     );
   });
 
-  it('enforces lifecycle transitions inside Postgres instead of trusting callers', () => {
-    const constraints = migration('0003_indexes_constraints.sql');
+  it('rejects direct inserts at APPROVED, EXECUTING, and SUCCEEDED', () => {
+    const hardening = migration('0004_task_5_hardening.sql');
+
+    expect(hardening).toContain(
+      "if tg_op = 'insert' and new.status <> 'draft' then",
+    );
+    expect(hardening).toContain(
+      "raise exception 'new action passports must start in draft'",
+    );
+    expect(hardening).toContain(
+      'create trigger action_passports_guard_write before insert or update on public.action_passports',
+    );
+  });
+
+  it('permits only DRAFT inserts and enforces lifecycle transitions inside Postgres', () => {
+    const constraints = allMigrations();
 
     expect(constraints).toContain(
       'create function public.is_valid_action_transition',
     );
     expect(constraints).toContain(
-      'create function public.guard_action_passport_update',
+      'create or replace function public.guard_action_passport_write',
     );
     expect(constraints).toContain(
       "raise exception 'action passport fields are immutable after creation'",
@@ -75,9 +89,7 @@ describe('Proofline database constraints', () => {
     expect(constraints).toContain(
       "raise exception 'invalid action lifecycle transition from % to %'",
     );
-    expect(constraints).toContain(
-      'create trigger action_passports_guard_update before update on public.action_passports',
-    );
+    expect(constraints).toContain("new.status <> 'draft'");
   });
 
   it('rejects expired or structurally invalid approvals before they can be applied', () => {
