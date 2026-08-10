@@ -132,7 +132,6 @@ describe('redactForDisplay', () => {
   });
 
   it.each([
-    ['Nostr private key', 'a'.repeat(64)],
     ['Nostr nsec key', `nsec1${'q'.repeat(58)}`],
     ['JWT', `eyJ${'a'.repeat(20)}.${'b'.repeat(20)}.${'c'.repeat(20)}`],
     ['Supabase secret key', `sb_secret_${'d'.repeat(32)}`],
@@ -144,6 +143,36 @@ describe('redactForDisplay', () => {
     expect(array.redacted).toEqual([
       expect.stringMatching(/^\[REDACTED:[0-9a-f]{12}\]$/),
       'ordinary deployment note',
+    ]);
+  });
+
+  it('preserves bare audit identifiers and redacts raw keys only with sensitivity context', () => {
+    const rawHex = 'a'.repeat(64);
+    const auditIdentifiers = {
+      agentPubkey: 'b'.repeat(64),
+      contentHash: 'c'.repeat(64),
+      eventId: 'd'.repeat(64),
+      passportHash: 'e'.repeat(64),
+      toolDefinitionHash: 'f'.repeat(64),
+    };
+    const defaultRoot = redactForDisplay(rawHex);
+    const defaultArray = redactForDisplay([rawHex, 'ordinary deployment note']);
+    const defaultAudit = redactForDisplay(auditIdentifiers);
+    const namedField = redactForDisplay({ privateKey: rawHex });
+    const explicitRoot = redactForDisplay(rawHex, { sensitivePaths: [[]] });
+    const explicitArray = redactForDisplay([rawHex], {
+      sensitivePaths: [[0]],
+    });
+
+    expect(defaultRoot.redacted).toBe(rawHex);
+    expect(defaultArray.redacted).toEqual([rawHex, 'ordinary deployment note']);
+    expect(defaultAudit.redacted).toEqual(auditIdentifiers);
+    expect(namedField.redacted).toMatchObject({
+      privateKey: expect.stringMatching(/^\[REDACTED:[0-9a-f]{12}\]$/),
+    });
+    expect(explicitRoot.redacted).toMatch(/^\[REDACTED:[0-9a-f]{12}\]$/);
+    expect(explicitArray.redacted).toEqual([
+      expect.stringMatching(/^\[REDACTED:[0-9a-f]{12}\]$/),
     ]);
   });
 });

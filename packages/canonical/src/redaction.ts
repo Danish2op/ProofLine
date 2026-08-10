@@ -17,7 +17,6 @@ const secretKeyParts = [
 ];
 const secretContainers = new Set(['credentials', 'secrets']);
 const secretPatterns = [
-  /\b[a-f0-9]{64}\b/i,
   /\bgh[pousr]_[A-Za-z0-9]{20,}\b/,
   /\bgithub_pat_[A-Za-z0-9_]{20,}\b/,
   /\bnsec1[023456789acdefghjklmnpqrstuvwxyz]{20,}\b/,
@@ -34,37 +33,67 @@ export interface RedactedPayload {
   redacted: unknown;
 }
 
+export type SensitivePath = readonly (string | number)[];
+
+export interface RedactionOptions {
+  /**
+   * Explicit sensitivity metadata for values whose syntax is ambiguous. For
+   * example, use `[[]]` for a sensitive root value or `[[0]]` for the first
+   * sensitive array element. Bare 64-hex strings remain visible by default
+   * because they can be public Nostr identifiers or Proofline audit hashes.
+   */
+  sensitivePaths?: readonly SensitivePath[];
+}
+
 /**
  * Creates a display-safe representation without changing the verifiable hash
  * of the original payload. Labels are deterministic so repeated observations
- * of the same protected value remain correlatable without revealing it.
+ * of the same protected value remain correlatable without revealing it. Callers
+ * must provide sensitivePaths for syntax-ambiguous values such as raw hex keys.
  */
-export function redactForDisplay(payload: unknown): RedactedPayload {
+export function redactForDisplay(
+  payload: unknown,
+  options: RedactionOptions = {},
+): RedactedPayload {
+  const sensitivePaths = new Set(
+    options.sensitivePaths?.map(serializePath) ?? [],
+  );
   return {
     protectedPayloadHash: hashCanonicalJson(payload),
-    redacted: redactValue(payload, false),
+    redacted: redactValue(payload, false, [], sensitivePaths),
   };
 }
 
-function redactValue(value: unknown, forceSensitive: boolean): unknown {
+function redactValue(
+  value: unknown,
+  forceSensitive: boolean,
+  path: SensitivePath,
+  sensitivePaths: ReadonlySet<string>,
+): unknown {
+  const redactHere = forceSensitive || sensitivePaths.has(serializePath(path));
   if (typeof value === 'string') {
-    return forceSensitive || isSecretString(value) ? stableLabel(value) : value;
+    return redactHere || isSecretString(value) ? stableLabel(value) : value;
   }
   if (value === null || typeof value !== 'object') {
-    return forceSensitive ? stableLabel(value) : value;
+    return redactHere ? stableLabel(value) : value;
   }
   if (Array.isArray(value)) {
-    return value.map((item) => redactValue(item, forceSensitive));
+    return value.map((item, index) =>
+      redactValue(item, redactHere, [...path, index], sensitivePaths),
+    );
   }
 
   return Object.fromEntries(
     Object.entries(value).map(([key, nestedValue]) => {
       const normalizedKey = normalizeKey(key);
       const redactNested =
-        forceSensitive ||
+        redactHere ||
         isSensitiveKey(normalizedKey) ||
         secretContainers.has(normalizedKey);
-      return [key, redactValue(nestedValue, redactNested)];
+      return [
+        key,
+        redactValue(nestedValue, redactNested, [...path, key], sensitivePaths),
+      ];
     }),
   );
 }
@@ -79,6 +108,10 @@ function isSensitiveKey(normalizedKey: string): boolean {
 
 function normalizeKey(key: string): string {
   return key.replaceAll(/[^a-z0-9]/gi, '').toLowerCase();
+}
+
+function serializePath(path: SensitivePath): string {
+  return JSON.stringify(path);
 }
 
 function stableLabel(value: unknown): string {
