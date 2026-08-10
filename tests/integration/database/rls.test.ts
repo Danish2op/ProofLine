@@ -128,6 +128,23 @@ describe('Proofline tenant isolation and audit RLS', () => {
     }
   });
 
+  it('makes approval-event inserts service-role-only so authenticated reviewers cannot forge actor_pubkey', () => {
+    const taskSix = migration('0007_task_6_authz_hardening.sql');
+
+    expect(taskSix).toContain(
+      'revoke insert on table public.approval_events from authenticated',
+    );
+    expect(taskSix).toContain(
+      'drop policy if exists approval_events_reviewer_insert on public.approval_events',
+    );
+    expect(taskSix).toContain(
+      'grant insert on table public.approval_events to service_role',
+    );
+    expect(taskSix).not.toMatch(
+      /create policy\s+approval_events_reviewer_insert[\s\S]*?to authenticated/i,
+    );
+  });
+
   it('prevents direct audit mutations and writes audit rows from action triggers', () => {
     const policies = migration('0002_rls_policies.sql');
     const constraints = migration('0003_indexes_constraints.sql');

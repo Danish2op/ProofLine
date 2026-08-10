@@ -1,7 +1,6 @@
 import {
   can,
   toAuthorizedActor,
-  type AuthorizationResource,
   type Permission,
   type WorkspaceMembershipStore,
 } from '@proofline/authz';
@@ -21,7 +20,8 @@ export type AuthorizationFailureCode =
   | 'member_removed'
   | 'cross_tenant'
   | 'permission_denied'
-  | 'self_approval_forbidden';
+  | 'self_approval_forbidden'
+  | 'authorization_context_missing';
 
 export class AuthorizationError extends Error {
   readonly status: 401 | 403;
@@ -37,6 +37,20 @@ export interface ServerAuthorizationDependencies {
   appOrigin: string;
   membershipStore: WorkspaceMembershipStore;
   resolveSession: SessionResolver;
+  approvalContextStore?: ApprovalContextStore;
+}
+
+export interface ApprovalAuthorizationContext {
+  actionId: string;
+  proposerUserId: string;
+  prohibitSelfApproval: boolean;
+}
+
+export interface ApprovalContextStore {
+  getApprovalContext(
+    workspaceId: string,
+    actionId: string,
+  ): Promise<ApprovalAuthorizationContext | null>;
 }
 
 export interface ServerAuthorization {
@@ -44,7 +58,7 @@ export interface ServerAuthorization {
     request: Request,
     workspaceId: string,
     permission: Permission,
-    resource?: Omit<AuthorizationResource, 'workspaceId'>,
+    actionId?: string,
   ): Promise<ReturnType<typeof toAuthorizedActor> & object>;
 }
 
@@ -52,12 +66,7 @@ export function createServerAuthorization(
   dependencies: ServerAuthorizationDependencies,
 ): ServerAuthorization {
   return {
-    async requireWorkspaceMember(
-      request,
-      workspaceId,
-      permission,
-      resource = {},
-    ) {
+    async requireWorkspaceMember(request, workspaceId, permission, actionId) {
       let session;
       try {
         session = await dependencies.resolveSession(request);
@@ -100,15 +109,45 @@ export function createServerAuthorization(
       }
 
       const actor = toAuthorizedActor(membership);
-      const authorizationResource = { ...resource, workspaceId };
-      if (actor === null || !can(actor, permission, authorizationResource)) {
-        if (
-          permission === 'approve_action' &&
-          resource.prohibitSelfApproval === true &&
-          resource.proposerUserId === session.user.id
-        ) {
-          throw new AuthorizationError('self_approval_forbidden');
+      if (permission === 'approve_action') {
+        if (!actionId || !dependencies.approvalContextStore) {
+          throw new AuthorizationError('authorization_context_missing');
         }
+
+        const approvalContext =
+          await dependencies.approvalContextStore.getApprovalContext(
+            workspaceId,
+            actionId,
+          );
+        if (
+          approvalContext === null ||
+          approvalContext.actionId !== actionId ||
+          !approvalContext.proposerUserId ||
+          typeof approvalContext.prohibitSelfApproval !== 'boolean'
+        ) {
+          throw new AuthorizationError('authorization_context_missing');
+        }
+
+        const authorizationResource = {
+          workspaceId,
+          proposerUserId: approvalContext.proposerUserId,
+          prohibitSelfApproval: approvalContext.prohibitSelfApproval,
+        };
+        if (actor === null || !can(actor, permission, authorizationResource)) {
+          if (
+            approvalContext.prohibitSelfApproval &&
+            approvalContext.proposerUserId === session.user.id
+          ) {
+            throw new AuthorizationError('self_approval_forbidden');
+          }
+          throw new AuthorizationError('permission_denied');
+        }
+
+        return actor;
+      }
+
+      const authorizationResource = { workspaceId };
+      if (actor === null || !can(actor, permission, authorizationResource)) {
         throw new AuthorizationError('permission_denied');
       }
 

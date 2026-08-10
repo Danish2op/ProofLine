@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": "../..",
+    "noEmit": true,
+    "paths": {
+      "@proofline/authz": ["packages/authz/dist/index.d.ts"],
+      "next/server": ["apps/web/node_modules/next/server.d.ts"]
+    }
+  },
+  "include": ["**/*.ts"]
+}

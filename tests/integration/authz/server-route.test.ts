@@ -1,9 +1,17 @@
 import { describe, expect, it } from 'vitest';
+import { NextRequest } from 'next/server';
 
-import { isReadOnlyDemoRequest } from '../../../apps/web/middleware.js';
+import {
+  config as middlewareConfig,
+  isReadOnlyDemoRequest,
+  middleware,
+} from '../../../apps/web/middleware.js';
 import {
   createSessionResolver,
+  createSupabaseServerAuth,
   getPublicSupabaseConfig,
+  refreshSupabaseSession,
+  supabaseAuthCookieOptions,
   type SupabaseSession,
 } from '../../../apps/web/lib/auth.js';
 import {
@@ -74,6 +82,44 @@ describe('server workspace authorization', () => {
     ).rejects.toMatchObject({ code: 'csrf_failed' });
   });
 
+  it('rejects an unauthenticated request before membership lookup', async () => {
+    const authorizer = createServerAuthorization({
+      appOrigin,
+      membershipStore: membershipStore({ role: 'owner' }),
+      resolveSession: async () => null,
+    });
+
+    await expect(
+      authorizer.requireWorkspaceMember(
+        request('GET'),
+        workspaceA,
+        'export_audit',
+      ),
+    ).rejects.toMatchObject({ code: 'unauthenticated', status: 401 });
+  });
+
+  it.each([
+    ['suspended', 'member_suspended'],
+    ['removed', 'member_removed'],
+  ] as const)(
+    'rejects a %s membership for every server route',
+    async (status, code) => {
+      const authorizer = createServerAuthorization({
+        appOrigin,
+        membershipStore: membershipStore({ role: 'owner', status }),
+        resolveSession: async () => session,
+      });
+
+      await expect(
+        authorizer.requireWorkspaceMember(
+          request('GET'),
+          workspaceA,
+          'export_audit',
+        ),
+      ).rejects.toMatchObject({ code, status: 403 });
+    },
+  );
+
   it('rechecks membership so a role downgrade blocks an open approval', async () => {
     const records = { role: 'reviewer' as const };
     const authorizer = createServerAuthorization({
@@ -87,6 +133,13 @@ describe('server workspace authorization', () => {
         }),
       },
       resolveSession: async () => session,
+      approvalContextStore: {
+        getApprovalContext: async () => ({
+          actionId: 'action-1',
+          proposerUserId: 'user-2',
+          prohibitSelfApproval: true,
+        }),
+      },
     });
 
     await expect(
@@ -94,6 +147,7 @@ describe('server workspace authorization', () => {
         request('POST'),
         workspaceA,
         'approve_action',
+        'action-1',
       ),
     ).resolves.toMatchObject({ role: 'reviewer' });
 
@@ -104,11 +158,36 @@ describe('server workspace authorization', () => {
         request('POST'),
         workspaceA,
         'approve_action',
+        'action-1',
       ),
     ).rejects.toMatchObject({ code: 'permission_denied' });
   });
 
   it('prevents a reviewer from approving their own proposal when policy forbids it', async () => {
+    const authorizer = createServerAuthorization({
+      appOrigin,
+      membershipStore: membershipStore({ role: 'reviewer' }),
+      resolveSession: async () => session,
+      approvalContextStore: {
+        getApprovalContext: async () => ({
+          actionId: 'action-1',
+          proposerUserId: 'user-1',
+          prohibitSelfApproval: true,
+        }),
+      },
+    });
+
+    await expect(
+      authorizer.requireWorkspaceMember(
+        request('POST'),
+        workspaceA,
+        'approve_action',
+        'action-1',
+      ),
+    ).rejects.toMatchObject({ code: 'self_approval_forbidden' });
+  });
+
+  it('fails closed when approval context is omitted from the server boundary', async () => {
     const authorizer = createServerAuthorization({
       appOrigin,
       membershipStore: membershipStore({ role: 'reviewer' }),
@@ -120,9 +199,8 @@ describe('server workspace authorization', () => {
         request('POST'),
         workspaceA,
         'approve_action',
-        { proposerUserId: 'user-1', prohibitSelfApproval: true },
       ),
-    ).rejects.toMatchObject({ code: 'self_approval_forbidden' });
+    ).rejects.toMatchObject({ code: 'authorization_context_missing' });
   });
 
   it('rejects a membership record returned for another tenant', async () => {
@@ -161,6 +239,33 @@ describe('server workspace authorization', () => {
     ).toEqual({ allowed: false, public: false, status: 404 });
   });
 
+  it('uses a Next middleware handler and matcher to keep demo access read-only and tenant-free', () => {
+    expect(middlewareConfig.matcher).toEqual(['/demo/:path*']);
+
+    const originalFetch = globalThis.fetch;
+    let fetchCalls = 0;
+    globalThis.fetch = async (...args) => {
+      fetchCalls += 1;
+      return originalFetch(...args);
+    };
+
+    try {
+      const readResponse = middleware(
+        new NextRequest(`${appOrigin}/demo/runs/synthetic`),
+      );
+      const writeResponse = middleware(
+        new NextRequest(`${appOrigin}/demo/runs/synthetic`, { method: 'POST' }),
+      );
+
+      expect(readResponse.status).toBe(200);
+      expect(writeResponse.status).toBe(405);
+      expect(writeResponse.headers.get('allow')).toBe('GET, HEAD');
+      expect(fetchCalls).toBe(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it('exposes only public Supabase configuration to browser code', () => {
     const environment = {
       NEXT_PUBLIC_SUPABASE_URL: 'https://project.supabase.co',
@@ -172,6 +277,50 @@ describe('server workspace authorization', () => {
       url: 'https://project.supabase.co',
       anonKey: 'anon-key',
     });
+  });
+
+  it('persists Supabase SSR refresh cookies on the Next response with secure options', () => {
+    const auth = createSupabaseServerAuth(
+      new NextRequest(`${appOrigin}/auth/callback`, {
+        headers: { cookie: 'sb-access-token=expired' },
+      }),
+      {
+        NEXT_PUBLIC_SUPABASE_URL: 'https://project.supabase.co',
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon-key',
+      },
+      (_url, _anonKey, options) => {
+        expect(options.cookieOptions).toMatchObject(supabaseAuthCookieOptions);
+        options.cookies.setAll([
+          {
+            name: 'sb-access-token',
+            value: 'refreshed',
+            options: { httpOnly: false, secure: false },
+          },
+        ]);
+        return fakeSupabaseClient();
+      },
+    );
+
+    expect(auth.response.cookies.get('sb-access-token')).toMatchObject({
+      value: 'refreshed',
+      httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
+      path: '/',
+    });
+  });
+
+  it('refreshes a session through the Supabase server client adapter', async () => {
+    const auth = createSupabaseServerAuth(
+      new NextRequest(`${appOrigin}/auth/callback`),
+      {
+        NEXT_PUBLIC_SUPABASE_URL: 'https://project.supabase.co',
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon-key',
+      },
+      (_url, _anonKey, _options) => fakeSupabaseClient(),
+    );
+
+    await expect(refreshSupabaseSession(auth)).resolves.toEqual(session);
   });
 
   it('uses a typed error at the authorization boundary', () => {
@@ -210,5 +359,23 @@ function membershipStore(membership: {
       role: membership.role,
       status: membership.status ?? 'active',
     }),
+  };
+}
+
+function fakeSupabaseClient() {
+  return {
+    auth: {
+      getUser: async () => ({ data: { user: { id: 'user-1' } }, error: null }),
+      refreshSession: async () => ({
+        data: {
+          session: {
+            access_token: session.accessToken,
+            expires_at: session.expiresAt,
+            user: { id: session.user.id },
+          },
+        },
+        error: null,
+      }),
+    },
   };
 }

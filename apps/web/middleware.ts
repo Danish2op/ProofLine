@@ -1,3 +1,5 @@
+import { NextResponse, type NextRequest } from 'next/server';
+
 export type DemoRequestDecision =
   | { allowed: true; public: true }
   | { allowed: false; public: true; status: 405 }
@@ -14,4 +16,27 @@ export function isReadOnlyDemoRequest(request: Request): DemoRequestDecision {
   }
 
   return { allowed: false, public: true, status: 405 };
+}
+
+export const config = {
+  matcher: ['/demo/:path*'],
+};
+
+export function middleware(request: NextRequest): NextResponse {
+  const decision = isReadOnlyDemoRequest(request);
+
+  if (!decision.public || decision.allowed) {
+    return NextResponse.next({ request });
+  }
+
+  return NextResponse.json(
+    { error: 'The public demo is read-only.' },
+    {
+      status: decision.status,
+      headers: {
+        allow: 'GET, HEAD',
+        'cache-control': 'no-store',
+      },
+    },
+  );
 }
