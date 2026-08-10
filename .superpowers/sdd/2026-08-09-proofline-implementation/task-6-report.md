@@ -132,3 +132,41 @@ Each review finding was converted to a regression test before its production cha
 | `pnpm db:verify` | Safely skipped: `SUPABASE_DB_URL` was not set; no credentials were requested or used. |
 
 The final fix-round worktree was clean after the implementation commit; the report update is committed separately so this file can record the exact implementation hash.
+
+## Fix Round 2: Async Supabase Response Cookie Visibility
+
+Fix commit: `496e2b83e4b3afbc2ad2b36aa5271fe95cb0ebbd` (`fix: keep async auth cookies observable`)
+
+### RED evidence
+
+Added `keeps the returned response live when async refresh later writes all Set-Cookie headers` to `tests/integration/authz/server-route.test.ts`. The test captures the SSR `setAll` callback during client construction, triggers it only after an awaited later `refreshSession()`, writes two refreshed cookies, and inspects the original returned response.
+
+Exact command:
+
+```text
+pnpm test tests/integration/authz/server-route.test.ts
+```
+
+Result: failed as expected — 1 failed, 16 passed. The assertion observed `auth.response.cookies.getAll()` as `[]`, proving the returned response was stale after asynchronous `setAll`.
+
+### GREEN evidence
+
+Changed `createSupabaseServerAuth` to retain one `NextResponse` object and mutate its cookie jar during every `setAll` callback. Request-cookie updates and secure `httpOnly`, `secure`, `sameSite=lax`, and `path=/` options remain enforced.
+
+Exact command:
+
+```text
+pnpm test tests/integration/authz/server-route.test.ts
+```
+
+Result: passed — 1 file, 17 tests.
+
+### REFACTOR and final verification
+
+- `pnpm test tests/unit/authz/permissions.test.ts tests/unit/authz/package-boundary.test.ts tests/integration/authz/server-route.test.ts tests/integration/database/rls.test.ts` — passed: 4 files, 79 tests.
+- `pnpm test` — passed: 14 files, 183 tests.
+- `pnpm build` — passed: authz, canonical, web, domain, and policy-engine builds.
+- `pnpm typecheck` — passed.
+- `pnpm lint` — passed.
+- `pnpm format:check` — passed.
+- `git diff --check` — passed.
