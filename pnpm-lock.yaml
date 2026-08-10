@@ -37,6 +37,9 @@ importers:
 
   packages/domain:
     dependencies:
+      '@proofline/canonical':
+        specifier: workspace:*
+        version: link:../canonical
       zod:
         specifier: ^4.4.3
         version: 4.4.3

@@ -77,6 +77,18 @@ describe('validatePassport', () => {
     });
   });
 
+  it.each([
+    ['risk', { ...validPassport().risk, clientOverride: 'allow' }],
+    ['approval', { ...validPassport().approval, reviewerRole: 'owner' }],
+  ])('rejects unknown nested %s fields', (field, value) => {
+    const result = validatePassport({ ...validPassport(), [field]: value });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'unknown_field' },
+    });
+  });
+
   it('rejects oversized targets before they enter the domain', () => {
     const result = validatePassport({
       ...validPassport(),
@@ -110,6 +122,78 @@ describe('validatePassport', () => {
     expect(result).toMatchObject({
       ok: false,
       error: { code: 'invalid_unicode', path: 'normalizedArguments' },
+    });
+  });
+
+  it('rejects non-NFC Unicode before canonical hashing', () => {
+    const result = validatePassport({
+      ...validPassport(),
+      target: 'sandbox://Cafe\u0301',
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'invalid_unicode', path: 'target' },
+    });
+  });
+
+  it.each([
+    ['undefined', undefined],
+    ['function', () => 'side effect'],
+    ['symbol', Symbol('secret')],
+    ['bigint', BigInt(1)],
+  ])(
+    'rejects normalized arguments containing %s because they cannot be hashed',
+    (_name, value) => {
+      const passport = {
+        ...validPassport(),
+        normalizedArguments: { value },
+      };
+
+      expect(() => computePassportHash(passport)).toThrow();
+      expect(validatePassport(passport)).toMatchObject({
+        ok: false,
+        error: { code: 'non_deterministic_value' },
+      });
+    },
+  );
+
+  it.each([
+    ['oversized string', { value: 'x'.repeat(16_385) }],
+    ['oversized array', { value: Array.from({ length: 1_001 }, () => 0) }],
+    [
+      'oversized object',
+      {
+        value: Object.fromEntries(
+          Array.from({ length: 1_001 }, (_, index) => [index, index]),
+        ),
+      },
+    ],
+    ['deeply nested value', nestValue(33)],
+  ])('rejects normalized arguments with %s', (_name, normalizedArguments) => {
+    const result = validatePassport({
+      ...validPassport(),
+      normalizedArguments,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'too_large' },
+    });
+  });
+
+  it('rejects runtime objects that canonical JSON cannot represent', () => {
+    const passport = {
+      ...validPassport(),
+      normalizedArguments: {
+        generatedAt: new Date('2026-08-10T00:00:00.000Z'),
+      },
+    };
+
+    expect(() => computePassportHash(passport)).toThrow();
+    expect(validatePassport(passport)).toMatchObject({
+      ok: false,
+      error: { code: 'non_deterministic_value' },
     });
   });
 
@@ -154,6 +238,48 @@ describe('createPassportRevision', () => {
       computePassportHash(previous),
     );
   });
+
+  it('invalidates prior approval and returns the revision to DRAFT', () => {
+    const parsedPrevious = validatePassport(validPassport());
+    if (!parsedPrevious.ok) throw new Error('fixture must be valid');
+    const previous = {
+      ...parsedPrevious.value,
+      approval: {
+        approvedAt: '2026-08-10T10:03:00.000Z',
+        approvedBy: parsedPrevious.value.agentPubkey,
+        expiresAt: '2026-08-10T10:30:00.000Z',
+        required: true,
+      },
+    };
+
+    const revision = createPassportRevision(previous, {
+      target: 'sandbox://demo-web/production',
+    });
+
+    expect(revision).toMatchObject({
+      approval: { required: true },
+      status: 'DRAFT',
+    });
+    expect(revision.approval).not.toHaveProperty('approvedAt');
+    expect(revision.approval).not.toHaveProperty('approvedBy');
+    expect(revision.approval).not.toHaveProperty('expiresAt');
+  });
+
+  it('creates a valid DRAFT passport when there is no previous revision', () => {
+    const parsedPrevious = validatePassport(validPassport());
+    if (!parsedPrevious.ok) throw new Error('fixture must be valid');
+    const { actionId, createdAt, schemaVersion, status, ...patch } =
+      parsedPrevious.value;
+
+    const revision = createPassportRevision(null, patch);
+
+    expect(revision.actionId).not.toBe(actionId);
+    expect(revision.createdAt).not.toBe(createdAt);
+    expect(revision.schemaVersion).toBe(schemaVersion);
+    expect(revision.status).toBe('DRAFT');
+    expect(revision.approval).toEqual({ required: true });
+    expect(status).toBe('DRAFT');
+  });
 });
 
 describe('action lifecycle transitions', () => {
@@ -171,15 +297,25 @@ describe('action lifecycle transitions', () => {
     expect(isValidLifecycleTransition(from, to)).toBe(true);
   });
 
-  it('rejects backwards and terminal-state transitions', () => {
+  it('rejects backwards transitions', () => {
     expect(isValidLifecycleTransition('APPROVED', 'PENDING_APPROVAL')).toBe(
       false,
     );
-    expect(isValidLifecycleTransition('SUCCEEDED', 'EXECUTING')).toBe(false);
-    expect(isValidLifecycleTransition('EXPIRED', 'APPROVED')).toBe(false);
-    expect(isValidLifecycleTransition('REVOKED', 'EXECUTING')).toBe(false);
-    expect(isValidLifecycleTransition('BLOCKED', 'PENDING_APPROVAL')).toBe(
-      false,
-    );
   });
+
+  it.each(['SUCCEEDED', 'FAILED', 'EXPIRED', 'REVOKED', 'BLOCKED'] as const)(
+    'treats %s as terminal',
+    (status) => {
+      expect(isValidLifecycleTransition(status, 'DRAFT')).toBe(false);
+      expect(isValidLifecycleTransition(status, 'EXECUTING')).toBe(false);
+    },
+  );
 });
+
+function nestValue(depth: number): Record<string, unknown> {
+  let value: Record<string, unknown> = { leaf: true };
+  for (let index = 0; index < depth; index += 1) {
+    value = { value };
+  }
+  return value;
+}

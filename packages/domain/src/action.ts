@@ -2,12 +2,14 @@ import { randomUUID } from 'node:crypto';
 
 import { z, ZodError } from 'zod';
 
+import { findJsonSafetyIssue } from '../../canonical/src/json-safe.js';
 import { EvidenceSchema } from './evidence.js';
 import {
   DomainValidationError,
   type DomainError,
   type Result,
 } from './errors.js';
+import { actionLifecycleStatuses } from './events.js';
 import { PolicySnapshotSchema, RiskSchema } from './policy.js';
 
 declare const brand: unique symbol;
@@ -72,6 +74,7 @@ export const ActionPassportV1Schema = z
     evidence: EvidenceSchema,
     policySnapshot: PolicySnapshotSchema,
     approval: ApprovalSchema,
+    status: z.enum(actionLifecycleStatuses).default('DRAFT'),
     idempotencyKey: IdempotencyKeySchema,
     createdAt: timestampSchema,
   })
@@ -88,8 +91,14 @@ export function validatePassport(
   const parsed = ActionPassportV1Schema.safeParse(passport);
   if (!parsed.success) return { ok: false, error: toDomainError(parsed.error) };
 
-  const deterministicError = findDeterminismError(parsed.data);
-  if (deterministicError) return { ok: false, error: deterministicError };
+  const jsonSafetyIssue = findJsonSafetyIssue(parsed.data, {
+    maxArrayLength: 1_000,
+    maxDepth: 32,
+    maxObjectProperties: 1_000,
+    maxStringLength: 16_384,
+    requireNfc: true,
+  });
+  if (jsonSafetyIssue) return { ok: false, error: jsonSafetyIssue };
 
   return { ok: true, value: parsed.data };
 }
@@ -102,8 +111,10 @@ export function createPassportRevision(
     ...(previous === null ? {} : structuredClone(previous)),
     ...structuredClone(patch),
     actionId: randomUUID(),
+    approval: { required: true },
     createdAt: new Date().toISOString(),
     schemaVersion: 1,
+    status: 'DRAFT',
   };
   const validated = validatePassport(candidate);
   if (!validated.ok) throw new DomainValidationError(validated.error);
@@ -144,80 +155,6 @@ function toDomainError(error: ZodError): DomainError {
   return { code: 'invalid_passport', message: issue.message, path };
 }
 
-function findDeterminismError(value: unknown, path = ''): DomainError | null {
-  if (typeof value === 'string') {
-    if (hasUnpairedSurrogate(value)) {
-      return {
-        code: 'invalid_unicode',
-        message:
-          'Passport strings cannot contain unpaired surrogate code units.',
-        path,
-      };
-    }
-    if (value.length > 16_384) {
-      return {
-        code: 'too_large',
-        message: 'Passport string exceeds its limit.',
-        path,
-      };
-    }
-    return null;
-  }
-  if (typeof value === 'number' && !Number.isFinite(value)) {
-    return {
-      code: 'non_deterministic_value',
-      message: 'Passport numbers must be finite.',
-      path,
-    };
-  }
-  if (value === null || typeof value !== 'object') return null;
-  if (Array.isArray(value)) {
-    if (value.length > 1_000) {
-      return {
-        code: 'too_large',
-        message: 'Passport array exceeds its limit.',
-        path,
-      };
-    }
-    return value.reduce<DomainError | null>(
-      (error, item, index) =>
-        error ?? findDeterminismError(item, joinPath(path, index)),
-      null,
-    );
-  }
-
-  const prototype = Object.getPrototypeOf(value);
-  if (prototype !== Object.prototype && prototype !== null) {
-    return {
-      code: 'non_deterministic_value',
-      message: 'Passport values must be plain JSON objects.',
-      path,
-    };
-  }
-
-  const entries = Object.entries(value);
-  if (entries.length > 1_000) {
-    return {
-      code: 'too_large',
-      message: 'Passport object exceeds its limit.',
-      path,
-    };
-  }
-  for (const [key, nestedValue] of entries) {
-    if (hasUnpairedSurrogate(key)) {
-      return {
-        code: 'invalid_unicode',
-        message:
-          'Passport object keys cannot contain unpaired surrogate code units.',
-        path,
-      };
-    }
-    const error = findDeterminismError(nestedValue, joinPath(path, key));
-    if (error) return error;
-  }
-  return null;
-}
-
 function isTimestampPath(path: string): boolean {
   return /(?:At|expiresAt|collectedAt|evaluatedAt)$/.test(path);
 }
@@ -228,22 +165,4 @@ function isIsoTimestamp(value: string): boolean {
   }
   const parsed = new Date(value);
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString() === value;
-}
-
-function hasUnpairedSurrogate(value: string): boolean {
-  for (let index = 0; index < value.length; index += 1) {
-    const codeUnit = value.charCodeAt(index);
-    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
-      const next = value.charCodeAt(index + 1);
-      if (!(next >= 0xdc00 && next <= 0xdfff)) return true;
-      index += 1;
-    } else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function joinPath(path: string, key: string | number): string {
-  return path === '' ? String(key) : `${path}.${key}`;
 }
