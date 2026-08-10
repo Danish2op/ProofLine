@@ -94,3 +94,76 @@ Ran as one fresh sequence before implementation commit:
   containers, and common token patterns. It cannot reliably identify every
   arbitrary secret embedded in otherwise ordinary prose, so future adapters
   should continue to provide explicit sensitive-field metadata.
+
+---
+
+# Task 3 Fix Round 2 Report
+
+Implementation commit: `169050b fix: bind passport hashes to explicit status`
+
+## Scope
+
+This round remains within Task 3. It binds raw hash input to the validated
+passport shape, extends root/array redaction patterns, and makes the canonical
+package buildable and consumable through its declared workspace package name.
+
+## RED evidence
+
+1. `pnpm vitest run tests/unit/domain/action-passport.test.ts tests/unit/domain/canonicalization.test.ts tests/unit/domain/canonical-package.test.ts`
+   - Exit code: `1`
+   - Result: `6 failed | 49 passed` tests across `3 failed` files.
+   - Observed failures: omitted `status` validated as `DRAFT`; synthetic raw
+     64-hex Nostr private keys, `nsec` keys, JWTs, and Supabase keys leaked at
+     root/array positions; canonical had no buildable public package entrypoint.
+2. The initial package build test encountered Windows command-launch status
+   `null`, so its harness was corrected to use the platform shell. The
+   repeated command `pnpm vitest run tests/unit/domain/canonical-package.test.ts`
+   then exited `1` with `1 failed` test because the canonical package had no
+   `build` script, which is the intended RED condition.
+
+## GREEN evidence
+
+`pnpm vitest run tests/unit/domain/action-passport.test.ts tests/unit/domain/canonicalization.test.ts tests/unit/domain/canonical-package.test.ts`
+
+- Exit code: `0`
+- Result: `55 passed` tests in `3 passed` files.
+- The package test runs the canonical TypeScript build and launches Node from
+  `packages/domain` to import `findJsonSafetyIssue` through
+  `@proofline/canonical`.
+
+## REFACTOR and final verification
+
+After Prettier, the focused command remained green at `55 passed` tests. A
+fresh full sequence then completed with exit code `0`:
+
+`pnpm format:check; pnpm typecheck; pnpm lint; pnpm test; pnpm build`
+
+- `pnpm format:check`: all files matched Prettier style.
+- `pnpm typecheck`: passed.
+- `pnpm lint`: passed.
+- `pnpm test`: `63 passed` tests in `5 passed` files.
+- `pnpm build`: passed; canonical ran `tsc -p tsconfig.build.json` and the
+  workspace build completed.
+
+## Changed files
+
+- `packages/canonical/package.json`
+- `packages/canonical/tsconfig.build.json`
+- `packages/canonical/src/index.ts`
+- `packages/canonical/src/hashing.ts`
+- `packages/canonical/src/redaction.ts`
+- `packages/domain/src/action.ts`
+- `tsconfig.base.json`
+- `vitest.config.ts`
+- `tests/unit/domain/action-passport.test.ts`
+- `tests/unit/domain/canonicalization.test.ts`
+- `tests/unit/domain/canonical-package.test.ts`
+
+## Concerns
+
+- Raw 64-hex strings are redacted as requested because they can be Nostr
+  private keys. This can also redact a hash when it appears as a bare
+  root/array string; structured UI values should label non-secret hashes with
+  explicit field metadata.
+- Pattern-based redaction remains defense in depth, not a substitute for
+  explicit sensitive-field metadata from future provider adapters.
