@@ -13,3 +13,4 @@ supabase/.temp/
 playwright-report/
 test-results/
 *.log
+.vercel
