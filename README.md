@@ -189,4 +189,4 @@ build verification.
 
 - Branch: `feat/proofline-mvp`
 - Repository: <https://github.com/Danish2op/ProofLine>
-- License: see the repository license file.
+- License: no license file is currently declared; add the intended license before accepting external contributions.
