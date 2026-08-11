@@ -304,6 +304,15 @@ returned 200 for `/` and `/demo`; content checks found the landing headline and
 the explicit `OFFLINE TECHNICAL REPLAY` label. This is a public offline replay,
 not a live Supabase/Buzz execution environment.
 
+## Custom domain (2026-08-11)
+
+Vercel attached `proofline.danis.live` to project `proofline` and the latest
+production deployment was aliased to that hostname. Name.com currently has no
+DNS record for the subdomain, so external resolution is not active yet. Vercel
+reports the required record as `CNAME proofline ->
+00e067834d956e04.vercel-dns-017.com.` (A `76.76.21.21` is also accepted).
+The deployment URL remains publicly reachable until DNS is updated.
+
 ## Supabase live boundary (2026-08-11)
 
 The linked project `tlaecrrimbpumhqmxltk` accepted migrations 0007–0017 and

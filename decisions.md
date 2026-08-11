@@ -392,6 +392,16 @@ framework detector.
 Validation: production Vercel build completed and public `/` and `/demo` probes
 returned HTTP 200 with expected content. No runtime secrets are configured.
 
+## D-039 — Custom domain is attached but DNS remains registrar-owned
+
+Decision: attach `proofline.danis.live` to Vercel now and preserve the generated
+Vercel URL as the verified fallback. Do not claim the custom domain is live
+until its external DNS record resolves.
+
+Required registrar change: CNAME host `proofline`, value
+`00e067834d956e04.vercel-dns-017.com.`. Vercel currently reports the domain as
+invalid configuration because Name.com has no matching record.
+
 ## D-038 — Deterministic agent execution is the default hosted path
 
 Decision: `run-verifier` invokes the built `VerifierAgent` in-process by default;
