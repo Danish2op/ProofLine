@@ -242,6 +242,33 @@ describe('VerifierAgent', () => {
     expect(result.escalationReasons).toContain('evidence_fact_coverage');
   });
 
+  it('rejects a NUL-containing evidence tuple that collides with a trusted fact', async () => {
+    const proposal = await new ProposerAgent().propose(proposalInput());
+    const trustedFact = {
+      ...proposal.evidenceFacts[0],
+      subject: 'deployment-checks',
+      value: 'passed\u0000verified',
+    };
+    const result = await new VerifierAgent().verify(
+      verificationInput(
+        {
+          ...proposal,
+          evidenceFacts: [
+            {
+              ...trustedFact,
+              subject: 'deployment-checks\u0000passed',
+              value: 'verified',
+            },
+          ],
+        },
+        { trustedEvidenceFacts: [trustedFact] },
+      ),
+    );
+
+    expect(result.decision).toBe('reject');
+    expect(result.escalationReasons).toContain('unbound_evidence_fact');
+  });
+
   it('reuses an exact verification replay and rejects conflicting request reuse', async () => {
     const proposal = await new ProposerAgent().propose(proposalInput());
     const agent = new VerifierAgent();

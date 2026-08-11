@@ -171,8 +171,6 @@ function evidenceCoverageFindings(
   trustedFacts: EvidenceFact[],
   evidenceIds: Set<string>,
 ): VerificationFinding[] {
-  const key = (fact: EvidenceFact) =>
-    `${fact.claimId}\u0000${fact.evidenceId}\u0000${fact.subject}\u0000${fact.value}`;
   const citedClaimEvidence = new Set(
     proposal.claims.flatMap((claim) =>
       isRecord(claim) &&
@@ -180,12 +178,10 @@ function evidenceCoverageFindings(
       Array.isArray(claim.evidenceRefs)
         ? claim.evidenceRefs
             .filter((id): id is string => typeof id === 'string')
-            .map((id) => `${claim.claimId}\u0000${id}`)
+            .map((id) => claimEvidenceIdentity(claim.claimId, id))
         : [],
     ),
   );
-  const claimEvidence = (fact: EvidenceFact) =>
-    `${fact.claimId}\u0000${fact.evidenceId}`;
   const trusted = new Set<string>();
   for (const fact of trustedFacts) {
     if (
@@ -195,7 +191,9 @@ function evidenceCoverageFindings(
       typeof fact.subject !== 'string' ||
       typeof fact.value !== 'string' ||
       !evidenceIds.has(fact.evidenceId) ||
-      !citedClaimEvidence.has(claimEvidence(fact))
+      !citedClaimEvidence.has(
+        claimEvidenceIdentity(fact.claimId, fact.evidenceId),
+      )
     ) {
       return [
         finding(
@@ -204,7 +202,7 @@ function evidenceCoverageFindings(
         ),
       ];
     }
-    trusted.add(key(fact));
+    trusted.add(evidenceFactIdentity(fact));
   }
   const proposed = new Set<string>();
   for (const fact of proposal.evidenceFacts) {
@@ -215,8 +213,10 @@ function evidenceCoverageFindings(
       typeof fact.subject !== 'string' ||
       typeof fact.value !== 'string' ||
       !evidenceIds.has(fact.evidenceId) ||
-      !citedClaimEvidence.has(claimEvidence(fact)) ||
-      !trusted.has(key(fact))
+      !citedClaimEvidence.has(
+        claimEvidenceIdentity(fact.claimId, fact.evidenceId),
+      ) ||
+      !trusted.has(evidenceFactIdentity(fact))
     ) {
       return [
         finding(
@@ -225,7 +225,7 @@ function evidenceCoverageFindings(
         ),
       ];
     }
-    proposed.add(key(fact));
+    proposed.add(evidenceFactIdentity(fact));
   }
   const coveredEvidenceIds = new Set(
     proposal.evidenceFacts.map((fact) =>
@@ -244,7 +244,7 @@ function evidenceCoverageFindings(
             isRecord(fact) &&
             typeof fact.claimId === 'string' &&
             typeof fact.evidenceId === 'string' &&
-            `${fact.claimId}\u0000${fact.evidenceId}` === reference,
+            claimEvidenceIdentity(fact.claimId, fact.evidenceId) === reference,
         ),
     )
   ) {
@@ -256,6 +256,19 @@ function evidenceCoverageFindings(
     ];
   }
   return [];
+}
+
+function evidenceFactIdentity(fact: EvidenceFact): string {
+  return hashCanonicalJson({
+    claimId: fact.claimId,
+    evidenceId: fact.evidenceId,
+    subject: fact.subject,
+    value: fact.value,
+  });
+}
+
+function claimEvidenceIdentity(claimId: string, evidenceId: string): string {
+  return hashCanonicalJson({ claimId, evidenceId });
 }
 
 function parseProposal(value: unknown): ProposalResult | null {

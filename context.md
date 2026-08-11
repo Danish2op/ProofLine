@@ -257,3 +257,13 @@ A fresh bounded Task 9 verifier run passed 3 files / 27 tests with one worker.
 `pnpm format:check`, and `git diff --check` each exited 0. No unbounded full
 suite, migration, lifecycle mutation, live provider, credentials, Buzz
 publication, database action, execution/UI work, or Task 10+ work was run.
+
+## Task 9 final blocker remediation (2026-08-11)
+
+Evidence-fact and claim/evidence identities in the deterministic verifier now
+use the existing canonical structured SHA-256 boundary instead of NUL-delimited
+strings. Distinct subject/value tuples therefore remain distinct even when an
+untrusted field contains NUL. The adversarial RED test reproduced the defect as
+an incorrect `approve`; focused GREEN passed 3 Task 9 verifier files / 28 tests.
+Fresh typecheck, workspace build, and repository-wide formatting also passed.
+Task 10 was not started.

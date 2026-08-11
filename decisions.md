@@ -335,3 +335,20 @@ Takeover validation (2026-08-11): the bounded three-file verifier regression
 passed 27 tests with one worker. Typecheck, the `@proofline/agents` package
 build, repository-wide Prettier, and the Git whitespace check each exited 0. No
 unbounded full suite or Task 10+ work was run.
+
+## D-034 — Task 9 evidence identity is canonical and NUL-safe
+
+Decision: the verifier represents both complete evidence facts and
+claim/evidence pairs with `hashCanonicalJson` over named structured fields.
+NUL-delimited concatenation is forbidden for evidence identity because all
+tuple fields are untrusted strings.
+
+Reason: `(subject = "deployment-checks", value = "passed\u0000verified")` and
+`(subject = "deployment-checks\u0000passed", value = "verified")` are distinct
+tuples but produced the same delimiter-concatenated identity. That collision
+allowed a proposed fact to match a different trusted fact.
+
+Validation: strict RED returned `approve` for the colliding tuple. Focused
+GREEN passed 3 Task 9 verifier files / 28 tests, including the adversarial
+regression that now requires `unbound_evidence_fact`. Typecheck, workspace
+build, and repository-wide Prettier passed. Task 10 was not started.

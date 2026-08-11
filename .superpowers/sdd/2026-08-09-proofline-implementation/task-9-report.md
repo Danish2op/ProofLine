@@ -171,3 +171,21 @@ credentials, Buzz publication, database mutation, or Task 10+ work was used.
 
 No unbounded full suite, migration, lifecycle mutation, live provider,
 credentials, Buzz publication, database action, or Task 10+ work was run.
+
+## Final blocker — NUL-safe evidence identity
+
+- Replaced every NUL-delimited identity in verifier evidence coverage with the
+  existing `hashCanonicalJson` structured SHA-256 boundary. Complete facts hash
+  named claim, evidence, subject, and value fields; citation coverage hashes the
+  named claim/evidence pair.
+- Added an adversarial real-agent regression using two distinct subject/value
+  tuples that collapse to the same delimiter-concatenated string. The verifier
+  must reject the proposed tuple as `unbound_evidence_fact`.
+- RED: the isolated regression failed because the verifier returned `approve`.
+- GREEN: the isolated regression passed, then the bounded verifier regression
+  passed 3 files / 28 tests with one worker.
+- Fresh `pnpm typecheck`, `pnpm build`, and repository-wide `pnpm
+  format:check` each exited 0.
+
+No migration, lifecycle mutation, live provider, credentials, Buzz
+publication, database action, execution/UI work, or Task 10+ work was used.
