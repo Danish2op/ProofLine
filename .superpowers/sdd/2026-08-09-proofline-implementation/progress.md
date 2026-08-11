@@ -46,3 +46,7 @@ Task 9: fix round 2 complete, independent review pending (revision payload/hash 
 Task 9: fix round 3/5 complete, independent review pending (validated ActionPassportV1 payload recomputation binds revision and parent hashes; raw payload facts are not trusted; replay/audit identities use canonical structured hashes. RED 4 failures / 11 tests; focused GREEN 3 files / 27 tests; bounded full 28 files / 290 passed / 1 skipped after reproducing and isolating the known package-build timing flake; typecheck/build/lint/format passed. No execution/UI or Task 10+ work).
 Task 9: fix round 3 takeover verification (2026-08-11): bounded verifier regression passed 3 files / 27 tests with one worker; `pnpm typecheck`, `pnpm --filter @proofline/agents run build`, repository-wide `pnpm format:check`, and `git diff --check` exited 0. No full suite, migration, lifecycle mutation, live provider, credentials, Buzz, database action, or Task 10+ work was run.
 Task 9: final blocker remediation complete (strict RED returned `approve` for distinct NUL-colliding subject/value tuples; canonical structured evidence identities restored separation; focused GREEN passed 3 verifier files / 28 tests; typecheck/workspace build/repository format passed; Task 10 not started).
+Task 9: production-boundary remediation committed as b687f18 (RED exposed missing
+server-bound proposal/now; loader now resolves agent/tool/policy/evidence and
+signature-verified Buzz proposal provenance; bounded full suite 28 files / 291
+passed / 1 skipped; typecheck, agents build, format, and diff checks passed).
