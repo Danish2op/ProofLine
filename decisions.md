@@ -94,3 +94,14 @@ publication waits share explicit bounded failure behavior.
 
 Reason: this supports relays that accept unauthenticated events without
 publishing before authentication on relays that require NIP-42.
+
+## D-015 — Single relay auth gate for concurrent publishes
+
+Decision: relay transport owns one explicit per-connection authentication state/promise; every publication observes that state and queues behind it until AUTH succeeds or the bounded operation fails.
+
+Reason: independent per-publish probes create a race where concurrent events bypass NIP-42 or are omitted from the auth flush.
+
+Validation: fix round 4 added a delayed-signer concurrency regression that
+holds a challenge open, publishes both before and after the AUTH frame exists,
+and observes all events only after the successful AUTH `OK`. The focused suite
+passed 37 tests with one explicitly credential-gated live test skipped.

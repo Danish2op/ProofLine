@@ -81,6 +81,12 @@ pnpm db:verify
 SKIPPED: set SUPABASE_DB_URL to run live Supabase database probes.
 ```
 
+An initial combined `pnpm test` and `pnpm build` invocation caused the
+unrelated canonical package-boundary test to exceed its 5-second timeout while
+both commands built packages concurrently. The serial `pnpm test` rerun above
+completed with all 19 files passing; no Task 7 test failed in the final
+verification.
+
 Focused adapter verification also passed before the final suite:
 
 ```text
@@ -304,3 +310,66 @@ only database migration added in this round.
 - `tests/integration/database/migration-test-helpers.ts`
 - `tests/unit/buzz-adapter/provenance.test.ts`
 - `context.md` and `decisions.md`
+
+## Fix Round 4 (2026-08-11)
+
+### Status
+
+`IMPLEMENTED_PENDING_INDEPENDENT_REVIEW`. The relay transport now owns one
+per-connection auth state, auth promise, and pending-publication queue. All
+publications wait in that queue while the connection is probing, awaiting a
+challenge, or signing/authenticating. A connection releases the queue only
+after either its bounded no-challenge probe expires or its AUTH event receives
+a successful NIP-01 `OK`; a challenge/auth failure rejects the queue and does
+not restore unauthenticated fallback.
+
+### RED / GREEN evidence
+
+| Defect | RED evidence | GREEN evidence |
+| --- | --- | --- |
+| Concurrent NIP-42 escape and missed flush | `pnpm vitest run tests/integration/buzz-adapter/relay.test.ts --testTimeout=1000 --hookTimeout=1000` failed the new delayed-signer regression: expected no `EVENT` frames while AUTH signing was pending, received the second concurrent event. | Same command after the per-connection gate: `9 passed, 1 skipped (10)`. The regression publishes one event before the challenge, one while signing is delayed, and one after the AUTH frame exists; all three are sent only after successful AUTH and acknowledge successfully. |
+
+### Verification
+
+```text
+pnpm vitest run tests/unit/buzz-adapter tests/integration/buzz-adapter tests/integration/database/constraints.test.ts --testTimeout=5000 --hookTimeout=5000
+Test Files  6 passed (6)
+Tests  37 passed | 1 skipped (38)
+
+pnpm typecheck
+$ tsc --noEmit
+
+pnpm --filter @proofline/buzz-adapter run build
+$ pnpm --filter @proofline/domain run build && tsc -p tsconfig.build.json
+$ tsc -p tsconfig.build.json
+
+pnpm lint
+$ eslint .
+
+pnpm format:check
+Checking formatting...
+All matched files use Prettier code style!
+
+pnpm test
+Test Files  19 passed (19)
+Tests  209 passed | 1 skipped (210)
+
+pnpm build
+Scope: 9 of 10 workspace projects
+... packages/buzz-adapter build: Done
+
+pnpm db:verify
+SKIPPED: set SUPABASE_DB_URL to run live Supabase database probes.
+```
+
+### Changed files
+
+- `packages/buzz-adapter/src/relay-transport.ts`
+- `tests/integration/buzz-adapter/relay.test.ts`
+- `context.md`, `decisions.md`, and the Task 7 execution ledger/report
+
+### Live-test status
+
+No live relay or Supabase probe was attempted: no credentials are available.
+The one skipped relay test and `pnpm db:verify` remain explicitly
+credential-gated; no live authentication or publication is claimed.

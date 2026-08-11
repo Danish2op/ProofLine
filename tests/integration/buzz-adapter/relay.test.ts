@@ -55,6 +55,68 @@ describe('Buzz relay adapter', () => {
     await expect(published).resolves.toBeUndefined();
   });
 
+  it('queues concurrent publications until delayed NIP-42 authentication succeeds', async () => {
+    const socket = new FakeRelaySocket();
+    const signer = delayedAuthSigner();
+    const transport = new Nip01RelayTransport({
+      relayUrl: 'wss://relay.example.test',
+      signer,
+      socketFactory: () => socket,
+      publicationTimeoutMs: 100,
+      authProbeTimeoutMs: 1,
+    });
+    const firstEvent = await deterministicSigner().sign({
+      created_at: 1_700_000_000,
+      kind: 9,
+      tags: [['h', 'proofline-demo-channel']],
+      content: 'first proposal',
+    });
+    const secondEvent = await deterministicSigner().sign({
+      created_at: 1_700_000_001,
+      kind: 9,
+      tags: [['h', 'proofline-demo-channel']],
+      content: 'second proposal',
+    });
+    const thirdEvent = await deterministicSigner().sign({
+      created_at: 1_700_000_002,
+      kind: 9,
+      tags: [['h', 'proofline-demo-channel']],
+      content: 'third proposal',
+    });
+
+    const firstPublication = transport.publish(firstEvent);
+    socket.open();
+    await Promise.resolve();
+    socket.receive(['AUTH', 'relay-challenge']);
+    await signer.authSigningStarted;
+
+    const secondPublication = transport.publish(secondEvent);
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    expect(socket.frames.filter((frame) => frame[0] === 'EVENT')).toEqual([]);
+
+    signer.finishAuthSigning();
+    await waitFor(() => socket.frames.some((frame) => frame[0] === 'AUTH'));
+    const authFrame = socket.frames.find((frame) => frame[0] === 'AUTH');
+    const thirdPublication = transport.publish(thirdEvent);
+
+    socket.receive([
+      'OK',
+      (authFrame![1] as { id: string }).id,
+      true,
+      'authenticated',
+    ]);
+    await waitFor(
+      () => socket.frames.filter((frame) => frame[0] === 'EVENT').length === 3,
+    );
+
+    for (const event of [firstEvent, secondEvent, thirdEvent]) {
+      socket.receive(['OK', event.id, true, 'stored']);
+    }
+    await expect(
+      Promise.all([firstPublication, secondPublication, thirdPublication]),
+    ).resolves.toEqual([undefined, undefined, undefined]);
+  });
+
   it('uses the NIP-01 transport by default instead of requiring an opaque publisher', async () => {
     const socket = new FakeRelaySocket();
     const client = new BuzzAdapterClient({
@@ -340,6 +402,37 @@ function deterministicSigner() {
           schnorr.sign(hexToBytes(id), hexToBytes(testPrivateKey)),
         ),
       };
+    },
+  };
+}
+
+function delayedAuthSigner() {
+  const signer = deterministicSigner();
+  let markAuthSigningStarted: (() => void) | undefined;
+  let finishAuthSigning: (() => void) | undefined;
+  const authSigningStarted = new Promise<void>((resolve) => {
+    markAuthSigningStarted = resolve;
+  });
+  const authSigningFinished = new Promise<void>((resolve) => {
+    finishAuthSigning = resolve;
+  });
+  return {
+    ...signer,
+    authSigningStarted,
+    finishAuthSigning() {
+      finishAuthSigning?.();
+    },
+    async sign(event: {
+      created_at: number;
+      kind: number;
+      tags: string[][];
+      content: string;
+    }) {
+      if (event.kind === 22242) {
+        markAuthSigningStarted?.();
+        await authSigningFinished;
+      }
+      return signer.sign(event);
     },
   };
 }

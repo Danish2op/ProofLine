@@ -34,7 +34,9 @@ Completed and reviewed:
 5. Supabase schema/RLS/audit; migrations through `0007` applied to linked project.
 6. Auth/authz and middleware; final scoped review approved.
 
-Task 7 fix round 3 implementation is complete pending the next independent review. Base implementation commits were `699b295`, `b86879c`; fix commits are `71a59a6` and `fab1b30`.
+Task 7 fix round 4 implementation is complete pending a fresh independent
+scoped review. Base implementation commits were `699b295`, `b86879c`; prior
+fix commits are `71a59a6`, `fab1b30`, and `d59e5d2`.
 
 Task 7 review findings that must be fixed before Task 8:
 
@@ -47,6 +49,10 @@ Task 7 review findings that must be fixed before Task 8:
 6. Proposal recording trusts a caller-provided passport ID instead of verifying it against signed `passportHash` and the stored passport hash. (Addressed in fix round 3 with migration 0011 and an executable mismatch probe.)
 
 Earlier findings already addressed in `71a59a6` but must not regress: DB-backed dedupe/atomic guarded transition, reviewer identity and self-approval checks, raw-event hash/signature binding, clean package-boundary build.
+
+7. Concurrent publications could escape the NIP-42 gate while AUTH signing
+   was pending; a publication after `authEventId` existed could also be
+   skipped by the flush. Addressed in fix round 4; independent review pending.
 
 ## Credentials and external systems
 
@@ -70,7 +76,8 @@ Earlier findings already addressed in `71a59a6` but must not regress: DB-backed 
 
 ## Next exact action
 
-Obtain a fresh scoped review for Task 7 fix round 3. Do not begin Task 8 until approved.
+Obtain a fresh scoped review for Task 7 fix round 4. Do not begin Task 8 until
+that review approves the Task 7 adapter.
 
 ## Do not do
 
