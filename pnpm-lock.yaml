@@ -93,7 +93,14 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
 
-  packages/execution: {}
+  packages/execution:
+    dependencies:
+      '@proofline/canonical':
+        specifier: workspace:*
+        version: link:../canonical
+      '@proofline/domain':
+        specifier: workspace:*
+        version: link:../domain
 
   packages/policy-engine:
     dependencies:

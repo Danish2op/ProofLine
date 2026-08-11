@@ -267,6 +267,7 @@ untrusted field contains NUL. The adversarial RED test reproduced the defect as
 an incorrect `approve`; focused GREEN passed 3 Task 9 verifier files / 28 tests.
 Fresh typecheck, workspace build, and repository-wide formatting also passed.
 Task 10 was not started.
+
 ## Task 9 production-boundary remediation (2026-08-11)
 
 The `run-verifier` entrypoint now binds `proposal` and a server-generated `now`

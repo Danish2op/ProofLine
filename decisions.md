@@ -352,6 +352,7 @@ Validation: strict RED returned `approve` for the colliding tuple. Focused
 GREEN passed 3 Task 9 verifier files / 28 tests, including the adversarial
 regression that now requires `unbound_evidence_fact`. Typecheck, workspace
 build, and repository-wide Prettier passed. Task 10 was not started.
+
 ## D-035 — Server-owned verifier context is mandatory
 
 Decision: the public verifier request contains only workspace/action/request
