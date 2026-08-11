@@ -241,35 +241,35 @@ describe('Proofline database constraints', () => {
     expect(lifecycle).toContain('order by ordinal');
   });
 
-  it('binds rejection audit identity to the canonical result and fails on collision', () => {
+  it('compares the complete rejection audit identity before accepting an exact replay', () => {
     const hardening = migration(
-      '0016_task_8_rejection_audit_collision_hardening.sql',
+      '0017_task_8_rejection_audit_identity_hardening.sql',
     );
 
-    expect(hardening).toContain('computed_command_hash');
-    expect(hardening).toContain('result::text');
-    expect(hardening).toContain("':rejected'");
-    expect(hardening).toContain('pg_advisory_xact_lock');
     expect(hardening).toContain(
-      'existing_command_hash is distinct from computed_command_hash',
+      "existing_audit_aggregate_type is distinct from 'action_passport'",
     );
-    expect(hardening).toContain('existing_result is distinct from result');
     expect(hardening).toContain(
-      "raise exception 'lifecycle rejection idempotency conflict'",
+      'existing_audit_metadata is distinct from audit_metadata',
     );
+    expect(hardening).toContain(
+      'existing_audit_actor_type is distinct from audit_actor_type',
+    );
+    expect(hardening).toContain(
+      'existing_audit_actor_id is distinct from source_actor_id',
+    );
+    expect(hardening).toContain(
+      'existing_audit_correlation_id is distinct from source_correlation_id',
+    );
+    expect(hardening).toContain(
+      'existing_audit_causation_id is distinct from source_causation_id',
+    );
+    expect(hardening).toContain('existing_audit_before_hash is not null');
+    expect(hardening).toContain('existing_audit_after_hash is not null');
     expect(hardening).toContain(
       "raise exception 'lifecycle rejection audit collision'",
     );
-    expect(hardening).toContain(
-      "existing_audit_metadata->>'commandid' is distinct from source_command_id::text",
-    );
-    expect(hardening).toContain(
-      "existing_audit_metadata->>'commandhash' is distinct from computed_command_hash",
-    );
-    expect(hardening).not.toContain(
-      'on conflict (workspace_id, action_passport_id, command_id) do nothing',
-    );
-    expect(hardening).not.toContain('on conflict (id) do nothing');
+    expect(hardening).not.toContain('existing_audit_metadata->>');
   });
 
   it('keeps seed data visibly synthetic and free of credentials', () => {

@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 describe('live Supabase verified Buzz proposal probe', () => {
-  it('fails a credentialed verification when the migration-0016 contract is stale', async () => {
+  it('fails a credentialed verification when the migration-0017 contract is stale', async () => {
     const output: string[] = [];
     const client = {
       async connect() {},
@@ -23,7 +23,8 @@ describe('live Supabase verified Buzz proposal probe', () => {
                 approval_rpc_present: true,
                 observation_rpc_present: true,
                 migration_0015_columns_present: true,
-                migration_0016_rejection_audit_present: false,
+                migration_0016_rejection_audit_present: true,
+                migration_0017_rejection_audit_identity_present: false,
               },
             ],
           };
@@ -39,7 +40,7 @@ describe('live Supabase verified Buzz proposal probe', () => {
         createClient: () => client as never,
         log: (message) => output.push(message),
       }),
-    ).rejects.toThrow(/migration 0016 rejection-audit contract is required/i);
+    ).rejects.toThrow(/migration 0017 complete audit identity are required/i);
     expect(output).not.toContain(
       'SKIPPED: set SUPABASE_DB_URL to run live Supabase database probes.',
     );
@@ -49,12 +50,22 @@ describe('live Supabase verified Buzz proposal probe', () => {
   });
 
   it('fails the executable rejection probe when a distinct command identity is accepted', async () => {
+    let poisonAuditPresent = false;
     const client = {
       async query(sql: string) {
         if (sql.includes('returning id')) {
           return {
             rows: [{ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }],
           };
+        }
+        if (sql.includes('insert into public.audit_events')) {
+          poisonAuditPresent = true;
+        }
+        if (sql.includes('record_lifecycle_rejection') && poisonAuditPresent) {
+          throw new Error('lifecycle rejection audit collision');
+        }
+        if (sql.includes('delete from public.audit_events')) {
+          poisonAuditPresent = false;
         }
         return { rows: [] };
       },
@@ -75,7 +86,68 @@ describe('live Supabase verified Buzz proposal probe', () => {
     );
   });
 
-  it('tracks migrations through 0015 and uses observation plus v2 lifecycle RPCs', () => {
+  it('fails the executable rejection probe when a pre-existing same-UUID audit has a different complete identity', async () => {
+    let poisonAuditSql = '';
+    let poisonAuditValues: unknown[] = [];
+    let rejectionValues: unknown[] = [];
+    const client = {
+      async query(sql: string, values: unknown[] = []) {
+        if (sql.includes('returning id')) {
+          return {
+            rowCount: 1,
+            rows: [{ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }],
+          };
+        }
+        if (sql.includes('insert into public.audit_events')) {
+          poisonAuditSql = sql;
+          poisonAuditValues = values;
+          return { rowCount: 1, rows: [] };
+        }
+        if (sql.includes('record_lifecycle_rejection')) {
+          rejectionValues = values;
+          return { rowCount: 1, rows: [] };
+        }
+        if (sql.includes('select receipt.command_hash')) {
+          const result = JSON.parse(String(rejectionValues[4]));
+          return {
+            rowCount: 1,
+            rows: [
+              {
+                command_hash: rejectionValues[3],
+                result_json: result,
+                metadata_json: {
+                  commandId: rejectionValues[2],
+                  commandHash: rejectionValues[3],
+                  result,
+                },
+              },
+            ],
+          };
+        }
+        return { rowCount: 0, rows: [] };
+      },
+    };
+
+    await expect(
+      verifyRejectionAuditContract(
+        client as never,
+        {
+          agentId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          toolDefinitionId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+          policyId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        },
+        'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      ),
+    ).rejects.toThrow(
+      /migration 0017 rejection-audit probe accepted a pre-existing audit with a different complete identity/i,
+    );
+    expect(poisonAuditSql).toContain("'unexpected_aggregate'");
+    expect(JSON.parse(String(poisonAuditValues.at(-1)))).toMatchObject({
+      unexpectedIdentityField: true,
+    });
+  });
+
+  it('tracks migrations through 0017 and uses observation plus v2 lifecycle RPCs', () => {
     const script = readFileSync(
       join(process.cwd(), 'scripts', 'verify-supabase-db.ts'),
       'utf8',
@@ -86,6 +158,9 @@ describe('live Supabase verified Buzz proposal probe', () => {
     );
     expect(script).toContain(
       "'0016_task_8_rejection_audit_collision_hardening.sql'",
+    );
+    expect(script).toContain(
+      "'0017_task_8_rejection_audit_identity_hardening.sql'",
     );
     expect(script).toContain('record_verified_buzz_approval_observation');
     expect(script).toContain('approve_verified_action_v2');

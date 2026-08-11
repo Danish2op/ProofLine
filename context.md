@@ -155,3 +155,23 @@ Takeover verification re-inspected the remediation contract on 2026-08-11. A
 fresh bounded run passed the same 3 files / 24 tests; typecheck, changed-file
 Prettier, and `git diff --check` passed. No live database probe ran because no
 credentials were available. Do not begin Task 9.
+
+## Task 8 final blocker remediation status (2026-08-11)
+
+The final review blocker is addressed without starting Task 9. Forward-only
+migration `0017_task_8_rejection_audit_identity_hardening.sql` replaces only
+the rejection recorder and treats an existing deterministic audit UUID as an
+exact replay only when every deterministic field owned by the recorder is
+identical. This includes `aggregate_type`, normalized actor identity,
+event/aggregate identity, null before/after hashes, the complete metadata JSON,
+and correlation/causation IDs; `occurred_at` is intentionally excluded.
+
+Strict RED produced 4 expected failures / 22 tests for the missing migration,
+complete-identity comparison, executable pre-existing poison-row probe, and
+verifier migration list. Focused GREEN passed 3 files / 25 tests. The bounded
+full suite passed 24 files / 259 tests with 1 existing credential-gated skip;
+typecheck, workspace build, lint, repository-wide Prettier, and `git diff
+--check` exited 0. `pnpm db:verify` exited 0 with the expected missing-
+`SUPABASE_DB_URL` skip, so migration deployment is not claimed. This runtime
+exposed no independent subagent dispatch control; a scoped controller diff and
+mutation review found no additional issue. Do not begin Task 9.

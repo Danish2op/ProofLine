@@ -23,6 +23,7 @@ const migrationNames = [
   '0014_task_8_lifecycle_provenance_hardening.sql',
   '0015_task_8_approval_observation_retirement.sql',
   '0016_task_8_rejection_audit_collision_hardening.sql',
+  '0017_task_8_rejection_audit_identity_hardening.sql',
 ] as const;
 
 interface SupabaseDbVerificationOptions {
@@ -190,6 +191,7 @@ async function assertTask8LifecycleContract(client: Client): Promise<void> {
     observation_rpc_present: boolean;
     migration_0015_columns_present: boolean;
     migration_0016_rejection_audit_present: boolean;
+    migration_0017_rejection_audit_identity_present: boolean;
   }>(
     `select
        to_regprocedure('public.approve_verified_action_v2(uuid,uuid,bigint,uuid,text,text,uuid,uuid,text,timestamptz,timestamptz,text,jsonb)') is not null as approval_rpc_present,
@@ -210,17 +212,27 @@ async function assertTask8LifecycleContract(client: Client): Promise<void> {
            to_regprocedure('proofline_internal.record_lifecycle_rejection(uuid,uuid,uuid,text,jsonb,text,text,uuid,uuid)')
          ) like '%lifecycle rejection audit collision%',
          false
-       ) as migration_0016_rejection_audit_present`,
+       ) as migration_0016_rejection_audit_present,
+       coalesce(
+         pg_get_functiondef(
+           to_regprocedure('proofline_internal.record_lifecycle_rejection(uuid,uuid,uuid,text,jsonb,text,text,uuid,uuid)')
+         ) like '%existing_audit_aggregate_type is distinct from ''action_passport''%'
+         and pg_get_functiondef(
+           to_regprocedure('proofline_internal.record_lifecycle_rejection(uuid,uuid,uuid,text,jsonb,text,text,uuid,uuid)')
+         ) like '%existing_audit_metadata is distinct from audit_metadata%',
+         false
+       ) as migration_0017_rejection_audit_identity_present`,
   );
   const contract = result.rows[0];
   if (
     !contract?.approval_rpc_present ||
     !contract.observation_rpc_present ||
     !contract.migration_0015_columns_present ||
-    !contract.migration_0016_rejection_audit_present
+    !contract.migration_0016_rejection_audit_present ||
+    !contract.migration_0017_rejection_audit_identity_present
   ) {
     throw new Error(
-      'Task 8 lifecycle contract is missing: migration 0015 and v2 approval/observation RPCs are required; migration 0016 rejection-audit contract is required.',
+      'Task 8 lifecycle contract is missing: migration 0015 and v2 approval/observation RPCs are required; migration 0016 rejection-audit contract and migration 0017 complete audit identity are required.',
     );
   }
 }
@@ -261,6 +273,52 @@ export async function verifyRejectionAuditContract(
     correlationId,
     null,
   ];
+
+  const poisonedMetadata = JSON.stringify({
+    commandId,
+    commandHash,
+    result,
+    unexpectedIdentityField: true,
+  });
+  const auditIdSql = `(md5(
+    ($1::uuid)::text || ':' || ($2::uuid)::text || ':' ||
+    ($3::uuid)::text || ':' || $4::text || ':' || $5::jsonb::text ||
+    ':rejected'
+  ))::uuid`;
+  await client.query(
+    `insert into public.audit_events (
+      id, workspace_id, actor_type, actor_id, event_type, aggregate_type,
+      aggregate_id, metadata_json, occurred_at, correlation_id, causation_id
+    ) values (
+      ${auditIdSql}, $1, $6, $7, 'action_command.rejected',
+      'unexpected_aggregate', $2, $10::jsonb, current_timestamp, $8, $9
+    )`,
+    [...values, poisonedMetadata],
+  );
+  await client.query('SAVEPOINT migration_0017_audit_identity_collision');
+  let auditIdentityCollisionObserved = false;
+  try {
+    await client.query(recordRejectionSql, values);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes('lifecycle rejection audit collision')) {
+      throw error;
+    }
+    auditIdentityCollisionObserved = true;
+  } finally {
+    await client.query(
+      'ROLLBACK TO SAVEPOINT migration_0017_audit_identity_collision',
+    );
+  }
+  await client.query(
+    `delete from public.audit_events where id = ${auditIdSql}`,
+    values.slice(0, 5),
+  );
+  assert.equal(
+    auditIdentityCollisionObserved,
+    true,
+    'Migration 0017 rejection-audit probe accepted a pre-existing audit with a different complete identity.',
+  );
 
   await client.query(recordRejectionSql, values);
   await client.query(recordRejectionSql, values);

@@ -144,3 +144,29 @@ independently inspected against the migration and verifier contracts. A fresh
 bounded run of the same three files passed 24 tests; `pnpm typecheck`, Prettier
 for all changed formatter-supported files, and `git diff --check` also passed.
 No live database probe ran because credentials remain unavailable.
+
+## Final blocker remediation evidence (2026-08-11)
+
+- Forward-only migration `0017_task_8_rejection_audit_identity_hardening.sql`
+  replaces only `proofline_internal.record_lifecycle_rejection`; no applied
+  migration was edited.
+- Existing audit UUIDs are accepted only when workspace, normalized actor,
+  event/aggregate type and ID, null before/after hashes, complete metadata JSON,
+  and correlation/causation IDs match. Only insertion-time `occurred_at` is
+  excluded from replay identity.
+- The credentialed verifier inserts a same-computed-UUID poison audit with an
+  unexpected aggregate type and an extra metadata field, requires the
+  deterministic collision, removes the poison row, then performs the existing
+  two-call exact replay and validates the single receipt/audit pair.
+
+Strict TDD and bounded verification:
+
+- RED: `pnpm vitest run tests/integration/database/constraints.test.ts tests/unit/scripts/verify-supabase-db-buzz-probe.test.ts --testTimeout 30000` — 4 expected failures / 22 tests.
+- Focused GREEN: `pnpm vitest run tests/integration/database/constraints.test.ts tests/integration/database/live-harness.test.ts tests/unit/scripts/verify-supabase-db-buzz-probe.test.ts --testTimeout 30000` — 3 files passed / 25 tests.
+- Bounded full suite: `pnpm vitest run --testTimeout 30000` — 24 files passed / 259 tests passed / 1 existing credential-gated skip.
+- `pnpm typecheck`, `pnpm build`, `pnpm lint`, `pnpm format:check`, and `git diff --check` — exit 0.
+- `pnpm db:verify` — exit 0 with the explicit missing-`SUPABASE_DB_URL` skip; no live migration execution or deployment claim.
+
+The runtime exposed no independent subagent dispatch control. A scoped
+controller diff and mutation review found no remaining Task 8 issue. Task 9 was
+not started.

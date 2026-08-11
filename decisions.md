@@ -235,3 +235,24 @@ Validation: strict RED covered stale credentialed verification, accepted distinc
 Takeover validation (2026-08-11): fresh focused verification again passed the
 same 3 files / 24 tests. Typecheck, Prettier for changed formatter-supported
 files, and `git diff --check` passed; no live database credentials were used.
+
+## D-029 — Rejection audit replay requires complete row identity
+
+Decision: add forward-only migration `0017` and accept an existing rejection
+audit UUID only when every deterministic field written by
+`record_lifecycle_rejection` matches: workspace, normalized actor type and ID,
+event type, aggregate type and ID, null before/after hashes, exact metadata JSON,
+and correlation/causation IDs. `occurred_at` is not replay identity because it
+is generated only when the row is first inserted. Any difference raises the
+deterministic `lifecycle rejection audit collision`; an exact replay remains a
+no-op success.
+
+Reason: migration `0016` checked selected metadata keys but omitted
+`aggregate_type` and tolerated extra metadata keys, allowing a pre-existing
+same-UUID row with a different intended audit identity to masquerade as replay.
+
+Validation: RED produced 4 expected failures / 22 tests. Focused GREEN passed
+3 files / 25 tests; bounded full Vitest passed 24 files / 259 tests with 1 skip;
+typecheck, workspace build, lint, repository-wide Prettier, and diff checks
+passed. The credential-gated database verifier skipped because
+`SUPABASE_DB_URL` is absent; no migration deployment claim is made.
