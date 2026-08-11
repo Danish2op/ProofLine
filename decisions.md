@@ -370,3 +370,13 @@ checked; human-readable or absent proposal messages are rejected.
 Validation: RED exposed the missing proposal/now binding; GREEN and the full
 bounded suite passed 28 files / 291 tests / 1 credential-gated skip, plus
 typecheck, agent build, formatting, and diff checks.
+
+## D-036 — Offline replay is the first public surface
+
+Decision: the initial web surface is a static, credential-free replay with an
+explicit offline label. It demonstrates the state machine and drift invariant;
+it does not imply that a live Buzz event, Supabase write, or external agent ran.
+
+Reason: the product must remain demonstrable without paid APIs, live secrets,
+or unreliable infrastructure. Live integrations can be added behind the same
+server-owned boundaries after the replay has been independently validated.

@@ -29,10 +29,12 @@ export function middleware(request: NextRequest): NextResponse {
     return NextResponse.next({ request });
   }
 
+  const status = 'status' in decision ? decision.status : 405;
+
   return NextResponse.json(
     { error: 'The public demo is read-only.' },
     {
-      status: decision.status,
+      status,
       headers: {
         allow: 'GET, HEAD',
         'cache-control': 'no-store',

@@ -1,0 +1,9 @@
+{
+  "synthetic": true,
+  "name": "sandbox.deploy",
+  "readOnly": false,
+  "destructive": false,
+  "idempotent": true,
+  "externalSideEffect": false,
+  "declaredScopes": ["sandbox:deploy"]
+}

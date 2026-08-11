@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "next-build": "next build",
     "typecheck": "tsc -p tsconfig.build.json"
   },
   "dependencies": {
@@ -14,5 +15,8 @@
     "next": "15.5.23",
     "react": "19.1.0",
     "react-dom": "19.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.18"
   }
 }

@@ -1,0 +1,8 @@
+{
+  "synthetic": true,
+  "evidenceId": "ci-proofline-demo",
+  "source": "offline fixture",
+  "claimId": "tests-passed",
+  "statement": "The staging deployment checks passed.",
+  "value": "passed"
+}

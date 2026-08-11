@@ -1,0 +1,8 @@
+{
+  "synthetic": true,
+  "actionId": "demo-action-20260811",
+  "tool": "sandbox.deploy",
+  "approvedTarget": "sandbox://staging",
+  "driftTarget": "sandbox://production",
+  "release": "proofline-demo-1"
+}

@@ -279,3 +279,16 @@ credential-gated skip; typecheck, agent build, format, and diff checks passed.
 The loader requires structured tool/policy metadata and a JSON ProposalResult
 message inside a recorded Buzz proposal event; human-readable or absent
 proposals are intentionally rejected. Task 10 remains next.
+
+## Task 10/11/12 offline slice (2026-08-11)
+
+Committed approval-bound execution (`84eb3fb`): canonical passport rehash,
+approval/identity/drift gate, in-memory idempotency states, deterministic
+sandbox provider, redacted receipt hashing, and a credential-free execute
+boundary. RED/GREEN execution tests and the full suite passed.
+
+Committed public offline replay slice next: the demo state machine exposes
+proposal, verification, Buzz-review, approval, drift-block, corrected approval,
+and sandbox execution states. `/` and `/demo` are static Next pages and the demo
+is explicitly labelled offline technical replay; no live Buzz, Supabase, or
+agent credentials are claimed. Synthetic fixtures include adversarial evidence.
