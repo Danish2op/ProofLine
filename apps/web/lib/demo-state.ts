@@ -16,6 +16,7 @@ export interface DemoSnapshot {
   target: string;
   eventIds: string[];
   nextRequiredAction: string | null;
+  receiptHash: string | null;
 }
 
 const steps: Array<{ state: DemoState; action: string | null }> = [
@@ -54,8 +55,11 @@ function snapshot(
     target:
       step.state === 'drift_blocked'
         ? 'sandbox://production'
-        : (previous?.target ?? 'sandbox://staging'),
+        : step.state === 'approved' || step.state === 'executed'
+          ? 'sandbox://staging'
+          : (previous?.target ?? 'sandbox://staging'),
     eventIds,
     nextRequiredAction: step.action,
+    receiptHash: step.state === 'executed' ? 'e'.repeat(64) : null,
   };
 }

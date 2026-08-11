@@ -13,6 +13,8 @@ describe('offline demo state', () => {
     state = advanceDemoRun(state);
     state = advanceDemoRun(state);
     expect(state.state).toBe('executed');
+    expect(state.target).toBe('sandbox://staging');
+    expect(state.receiptHash).toMatch(/^[0-9a-f]{64}$/);
     expect(state.mode).toBe('offline-replay');
   });
 
