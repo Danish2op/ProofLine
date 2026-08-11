@@ -180,6 +180,7 @@ function facts(evidence: ProposalInput['evidence']): EvidenceFact[] {
   return evidence
     .flatMap((item) =>
       item.claims.map((claim: EvidenceClaimInput) => ({
+        claimId: claim.claimId,
         evidenceId: item.reference.evidenceId,
         subject: claim.subject,
         value: claim.value,
@@ -187,8 +188,8 @@ function facts(evidence: ProposalInput['evidence']): EvidenceFact[] {
     )
     .sort((left, right) =>
       compareCodePoints(
-        `${left.subject}:${left.value}:${left.evidenceId}`,
-        `${right.subject}:${right.value}:${right.evidenceId}`,
+        `${left.claimId}:${left.subject}:${left.value}:${left.evidenceId}`,
+        `${right.claimId}:${right.subject}:${right.value}:${right.evidenceId}`,
       ),
     );
 }

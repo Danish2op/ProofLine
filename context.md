@@ -210,3 +210,21 @@ Fix-round bounded verification: focused agent/security tests passed 4 files / 21
 tests; `pnpm typecheck` passed; `pnpm --filter @proofline/agents run build`
 passed; and repository-wide `pnpm format:check` passed after formatting the
 reported Task 9 files and lockfile. Task 10 was not started.
+
+## Task 9 fix round 2 status (2026-08-11)
+
+The verifier boundary now accepts only its four public identifiers and resolves
+the server action ID to the internal passport-row UUID. It verifies that the
+row, action, workspace, latest revision, and canonical hash agree before
+calling the verifier. Feedback replay, lookup, deterministic audit identity,
+and persisted metadata are scoped by workspace, row UUID, action ID, actor,
+request, and idempotency key. Evidence facts now carry a claim ID and must bind
+exactly to both trusted facts and each cited claim/evidence pair. An optional
+provider timeout returns the deterministic fallback immediately after aborting,
+even when the provider never settles.
+
+Strict RED exposed three failures: feedback lookup used the public action ID,
+row/revision mismatch was accepted, and a same-valued fact could cover two
+claims. Focused GREEN passed 3 files / 23 tests. Typecheck, the agents build,
+scoped Prettier, and diff checks passed. No lifecycle mutation, migration, live
+provider, credentials, Buzz, database action, or Task 10+ work was used.

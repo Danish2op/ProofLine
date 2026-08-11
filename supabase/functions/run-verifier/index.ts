@@ -10,15 +10,23 @@ export interface AuthenticatedCaller {
 }
 
 export interface ServerPassportRecord {
+  actionPassportRowId: string;
   actionId: string;
   workspaceId: string;
+  actionPassportHash: string;
   passportHash: string;
+  revisionHash: string;
   passport: Record<string, unknown>;
+  actor: unknown;
+  toolMetadata: unknown;
+  workspacePolicy: unknown;
+  trustedEvidenceFacts: unknown[];
 }
 
 export interface FeedbackLookup {
   workspaceId: string;
   actionPassportId: string;
+  actionId: string;
   actorId: string;
   requestId: string;
   idempotencyKey: string;
@@ -88,11 +96,17 @@ export function createRunVerifierHandler(
       actionPassportId !== undefined &&
       requestId !== undefined &&
       idempotencyKey !== undefined &&
-      'verification' in body;
+      Object.keys(body).every((key) =>
+        [
+          'workspaceId',
+          'actionPassportId',
+          'requestId',
+          'idempotencyKey',
+        ].includes(key),
+      ) &&
+      Object.keys(body).length === 4;
     if (!strictRequest) {
-      const result = await dependencies.verify(body.verification);
-      await dependencies.captureFeedback(result.feedback);
-      return Response.json(result);
+      return error('invalid_request', 400);
     }
     if (
       dependencies.loadPassport === undefined ||
@@ -114,7 +128,8 @@ export function createRunVerifierHandler(
     const requestFingerprint = await sha256Hex(rawBody);
     const lookup: FeedbackLookup = {
       workspaceId,
-      actionPassportId,
+      actionPassportId: passport.actionPassportRowId,
+      actionId: passport.actionId,
       actorId: caller.userId,
       requestId,
       idempotencyKey,
@@ -135,7 +150,12 @@ export function createRunVerifierHandler(
         : error('idempotency_conflict', 409);
     }
 
-    const boundInput = bindVerificationInput(body.verification, body, passport);
+    const boundInput = bindVerificationInput(
+      body,
+      passport,
+      requestId,
+      idempotencyKey,
+    );
     const result = await dependencies.verify(boundInput);
     const capture: FeedbackCapture = {
       ...lookup,
@@ -172,18 +192,24 @@ export function defaultRunVerifierDependencies(): RunVerifierDependencies {
 }
 
 function bindVerificationInput(
-  verification: unknown,
   body: Record<string, unknown>,
   passport: ServerPassportRecord,
+  requestId: string,
+  idempotencyKey: string,
 ): Record<string, unknown> {
   return {
-    ...(isRecord(verification) ? verification : {}),
     workspaceId: body.workspaceId,
-    actionPassportId: body.actionPassportId,
-    requestId: body.requestId,
-    idempotencyKey: body.idempotencyKey,
+    actionPassportId: passport.actionPassportRowId,
+    actionId: passport.actionId,
+    requestId,
+    idempotencyKey,
     passportHash: passport.passportHash,
     passport: passport.passport,
+    authorizedTarget: passport.passport.target,
+    actor: passport.actor,
+    toolMetadata: passport.toolMetadata,
+    workspacePolicy: passport.workspacePolicy,
+    trustedEvidenceFacts: passport.trustedEvidenceFacts,
   };
 }
 
@@ -195,6 +221,12 @@ function validateServerPassport(
   return (
     passport.workspaceId === workspaceId &&
     passport.actionId === actionPassportId &&
+    typeof passport.actionPassportRowId === 'string' &&
+    passport.actionPassportRowId.length > 0 &&
+    typeof passport.revisionHash === 'string' &&
+    typeof passport.actionPassportHash === 'string' &&
+    passport.actionPassportHash === passport.revisionHash &&
+    passport.revisionHash === passport.passportHash &&
     /^[0-9a-f]{64}$/.test(passport.passportHash) &&
     isRecord(passport.passport) &&
     passport.passport.actionId === actionPassportId &&
@@ -248,41 +280,49 @@ async function authorizeFromSupabase(
 async function loadPassportFromSupabase(
   caller: AuthenticatedCaller,
   workspaceId: string,
-  actionPassportId: string,
+  actionId: string,
 ): Promise<ServerPassportRecord | null> {
   const url = env('SUPABASE_URL');
   const key = env('SUPABASE_ANON_KEY', 'NEXT_PUBLIC_SUPABASE_ANON_KEY');
-  if (!url || !key || !caller.accessToken || !isUuid(actionPassportId))
-    return null;
+  if (!url || !key || !caller.accessToken || !isUuid(actionId)) return null;
   const headers = {
     apikey: key,
     authorization: `Bearer ${caller.accessToken}`,
   };
   const action = await getJson(
-    `${url}/rest/v1/action_passports?workspace_id=eq.${encodeURIComponent(workspaceId)}&id=eq.${actionPassportId}&select=action_id,workspace_id,passport_hash`,
+    `${url}/rest/v1/action_passports?workspace_id=eq.${encodeURIComponent(workspaceId)}&action_id=eq.${actionId}&select=id,action_id,workspace_id,passport_hash`,
     headers,
   );
+  if (!Array.isArray(action) || !isRecord(action[0])) return null;
+  const actionRow = action[0];
+  const rowId = typeof actionRow.id === 'string' ? actionRow.id : null;
+  if (rowId === null) return null;
   const revision = await getJson(
-    `${url}/rest/v1/action_revisions?workspace_id=eq.${encodeURIComponent(workspaceId)}&action_passport_id=eq.${actionPassportId}&select=payload_json&order=revision_number.desc&limit=1`,
+    `${url}/rest/v1/action_revisions?workspace_id=eq.${encodeURIComponent(workspaceId)}&action_passport_id=eq.${rowId}&select=passport_hash,payload_json&order=revision_number.desc&limit=1`,
     headers,
   );
-  if (
-    !Array.isArray(action) ||
-    !isRecord(action[0]) ||
-    !Array.isArray(revision) ||
-    !isRecord(revision[0])
-  )
-    return null;
+  if (!Array.isArray(revision) || !isRecord(revision[0])) return null;
   const payload = revision[0].payload_json;
   return isRecord(payload) &&
-    typeof action[0].action_id === 'string' &&
-    typeof action[0].workspace_id === 'string' &&
-    typeof action[0].passport_hash === 'string'
+    typeof actionRow.action_id === 'string' &&
+    typeof actionRow.workspace_id === 'string' &&
+    typeof actionRow.passport_hash === 'string' &&
+    typeof revision[0].passport_hash === 'string' &&
+    isRecord(payload)
     ? {
-        actionId: action[0].action_id,
-        workspaceId: action[0].workspace_id,
-        passportHash: action[0].passport_hash,
+        actionPassportRowId: rowId,
+        actionId: actionRow.action_id,
+        workspaceId: actionRow.workspace_id,
+        actionPassportHash: actionRow.passport_hash,
+        passportHash: revision[0].passport_hash,
+        revisionHash: revision[0].passport_hash,
         passport: payload,
+        actor: payload.actor,
+        toolMetadata: payload.toolMetadata,
+        workspacePolicy: payload.workspacePolicy,
+        trustedEvidenceFacts: Array.isArray(payload.trustedEvidenceFacts)
+          ? payload.trustedEvidenceFacts
+          : [],
       }
     : null;
 }
@@ -306,6 +346,7 @@ async function findFeedbackFromSupabase(
     const metadata = candidate.metadata_json;
     return (
       metadata.actorId === lookup.actorId &&
+      metadata.actionId === lookup.actionId &&
       metadata.requestId === lookup.requestId &&
       metadata.idempotencyKey === lookup.idempotencyKey
     );
@@ -327,6 +368,7 @@ async function captureFeedbackToAudit(
     !isRecord(feedback) ||
     typeof feedback.workspaceId !== 'string' ||
     typeof feedback.actionPassportId !== 'string' ||
+    typeof feedback.actionId !== 'string' ||
     typeof feedback.actorId !== 'string' ||
     typeof feedback.requestId !== 'string' ||
     typeof feedback.idempotencyKey !== 'string' ||
@@ -340,7 +382,7 @@ async function captureFeedbackToAudit(
   if (!url || !serviceKey || !isUuid(feedback.actionPassportId))
     throw new Error('configuration_missing');
   const eventId = await uuidFrom(
-    `${feedback.workspaceId}:${feedback.actorId}:${feedback.requestId}:${feedback.idempotencyKey}`,
+    `${feedback.workspaceId}:${feedback.actionPassportId}:${feedback.actionId}:${feedback.actorId}:${feedback.requestId}:${feedback.idempotencyKey}`,
   );
   const response = await fetch(`${url}/rest/v1/audit_events`, {
     method: 'POST',
@@ -361,6 +403,9 @@ async function captureFeedbackToAudit(
       after_hash: feedback.passportHash,
       metadata_json: {
         actorId: feedback.actorId,
+        workspaceId: feedback.workspaceId,
+        actionPassportId: feedback.actionPassportId,
+        actionId: feedback.actionId,
         requestId: feedback.requestId,
         idempotencyKey: feedback.idempotencyKey,
         requestFingerprint: feedback.requestFingerprint,

@@ -106,12 +106,37 @@ describe('untrusted agent content', () => {
 
     expect(result.providerFailure).toEqual({
       code: 'provider_timeout',
-      attempts: 2,
+      attempts: 1,
     });
-    expect(aborted).toBe(2);
+    expect(aborted).toBe(1);
     expect(maxActive).toBe(1);
     expect(active).toBe(0);
     expect(lateSideEffects).toBe(0);
+  });
+
+  it('returns the deterministic fallback when a provider never settles after abort', async () => {
+    let fallbackCalled = false;
+    const outcome = await Promise.race([
+      runWithOptionalProvider({
+        fallback: async () => {
+          fallbackCalled = true;
+          return new ProposerAgent().propose(proposalInput());
+        },
+        provider: {
+          run() {
+            return new Promise(() => undefined);
+          },
+        },
+        retries: 1,
+        timeoutMs: 5,
+      }),
+      new Promise<'timed_out'>((resolve) =>
+        setTimeout(() => resolve('timed_out'), 50),
+      ),
+    ]);
+
+    expect(outcome).not.toBe('timed_out');
+    expect(fallbackCalled).toBe(true);
   });
 });
 

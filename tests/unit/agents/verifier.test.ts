@@ -173,6 +173,75 @@ describe('VerifierAgent', () => {
     expect(unboundFact.escalationReasons).toContain('unbound_evidence_fact');
   });
 
+  it('rejects evidence facts that omit a cited evidence item or claim', async () => {
+    const input = proposalInput({
+      evidence: [
+        ...proposalInput().evidence,
+        {
+          ...proposalInput().evidence[0],
+          reference: {
+            ...proposalInput().evidence[0].reference,
+            evidenceId: 'ci-456',
+          },
+          claims: [
+            {
+              claimId: 'artifact-present',
+              subject: 'artifact',
+              value: 'present',
+              statement: 'The artifact exists.',
+            },
+          ],
+        },
+      ],
+    });
+    const proposal = await new ProposerAgent().propose(input);
+    const result = await new VerifierAgent().verify(
+      verificationInput({
+        ...proposal,
+        evidenceFacts: proposal.evidenceFacts.filter(
+          (fact) => fact.evidenceId !== 'ci-456',
+        ),
+      }),
+    );
+
+    expect(result.decision).toBe('reject');
+    expect(result.escalationReasons).toContain('evidence_fact_coverage');
+  });
+
+  it('rejects omission of one claim when two claims share an evidence fact value', async () => {
+    const input = proposalInput({
+      evidence: [
+        {
+          ...proposalInput().evidence[0],
+          claims: [
+            {
+              claimId: 'primary-check',
+              subject: 'deployment-checks',
+              value: 'passed',
+              statement: 'The primary check passed.',
+            },
+            {
+              claimId: 'secondary-check',
+              subject: 'deployment-checks',
+              value: 'passed',
+              statement: 'The secondary check passed.',
+            },
+          ],
+        },
+      ],
+    });
+    const proposal = await new ProposerAgent().propose(input);
+    const result = await new VerifierAgent().verify(
+      verificationInput({
+        ...proposal,
+        evidenceFacts: [proposal.evidenceFacts[0]],
+      }),
+    );
+
+    expect(result.decision).toBe('reject');
+    expect(result.escalationReasons).toContain('evidence_fact_coverage');
+  });
+
   it('reuses an exact verification replay and rejects conflicting request reuse', async () => {
     const proposal = await new ProposerAgent().propose(proposalInput());
     const agent = new VerifierAgent();
@@ -222,8 +291,16 @@ function verificationInput(
       version: 'mvp-1',
       trustedToolDefinitionHashes: ['c'.repeat(64)],
     },
+    trustedEvidenceFacts:
+      isRecord(proposal) && Array.isArray(proposal.evidenceFacts)
+        ? (proposal.evidenceFacts as VerificationInput['trustedEvidenceFacts'])
+        : [],
     ...overrides,
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function proposalInput(overrides: Partial<ProposalInput> = {}): ProposalInput {

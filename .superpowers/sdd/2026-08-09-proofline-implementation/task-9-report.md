@@ -85,3 +85,36 @@ Strict TDD evidence for this round:
   passed: `All matched files use Prettier code style!`.
 
 No migration was required. Tasks 10+ remain untouched.
+
+## Fix round 2 â€” verifier identity, deadline, and evidence completeness
+
+- The HTTP boundary accepts only `workspaceId`, public `actionPassportId`
+  (action ID), `requestId`, and `idempotencyKey`; no client-supplied
+  verification context remains. The server resolves that action ID to the
+  `action_passports` row UUID and latest revision, then rejects any
+  row/revision/passport-hash mismatch before invoking verification.
+- Feedback lookup, replay, deterministic audit UUID, aggregate identity, and
+  stored metadata use the server row UUID together with workspace, action,
+  actor, request, and idempotency identity. This preserves exact replay while
+  preventing action/workspace collisions.
+- Evidence facts include a claim ID. The verifier requires every fact to match
+  trusted server facts and a cited claim/evidence pair, so distinct claims with
+  identical subject/value text cannot share a single fact.
+- A timed-out optional provider is aborted and detached; fallback returns at
+  that deadline even if the provider promise never settles.
+
+Strict TDD evidence:
+
+- RED: `pnpm vitest run tests/unit/agents/run-verifier-boundary.test.ts
+  tests/unit/agents/verifier.test.ts --reporter=verbose` produced three
+  expected failures: public action ID used for feedback lookup, accepted
+  row/revision hash mismatch, and omitted same-valued claim fact.
+- GREEN: `pnpm vitest run tests/unit/agents/run-verifier-boundary.test.ts
+  tests/unit/agents/verifier.test.ts tests/security/agents/untrusted-content.test.ts
+  --reporter=verbose` passed 3 files / 23 tests. It includes the
+  never-settling-provider deadline regression.
+
+Fresh bounded verification also ran `pnpm typecheck`,
+`pnpm --filter @proofline/agents run build`, scoped Prettier, and `git diff
+--check`. No full suite, live provider, credentials, Buzz publication,
+database mutation, migration, lifecycle mutation, or Task 10+ work was run.

@@ -94,6 +94,13 @@ function verifyDeterministically(input: VerificationInput): VerificationResult {
   }
   findings.push(...citationFindings(proposal.claims, passport));
   findings.push(
+    ...evidenceCoverageFindings(
+      proposal,
+      input.trustedEvidenceFacts,
+      new Set(passport.evidence.map((item) => item.evidenceId)),
+    ),
+  );
+  findings.push(
     ...conflictFindings(
       proposal.evidenceFacts,
       new Set(passport.evidence.map((item) => item.evidenceId)),
@@ -143,6 +150,7 @@ function verifyDeterministically(input: VerificationInput): VerificationResult {
       'empty_claims',
       'empty_evidence',
       'missing_evidence_facts',
+      'evidence_fact_coverage',
       'passport_hash_mismatch',
       'policy_denied',
       'policy_mismatch',
@@ -156,6 +164,98 @@ function verifyDeterministically(input: VerificationInput): VerificationResult {
     checkedPassportHash,
     hardReject ? 'reject' : 'request_changes',
   );
+}
+
+function evidenceCoverageFindings(
+  proposal: ProposalResult,
+  trustedFacts: EvidenceFact[],
+  evidenceIds: Set<string>,
+): VerificationFinding[] {
+  const key = (fact: EvidenceFact) =>
+    `${fact.claimId}\u0000${fact.evidenceId}\u0000${fact.subject}\u0000${fact.value}`;
+  const citedClaimEvidence = new Set(
+    proposal.claims.flatMap((claim) =>
+      isRecord(claim) &&
+      typeof claim.claimId === 'string' &&
+      Array.isArray(claim.evidenceRefs)
+        ? claim.evidenceRefs
+            .filter((id): id is string => typeof id === 'string')
+            .map((id) => `${claim.claimId}\u0000${id}`)
+        : [],
+    ),
+  );
+  const claimEvidence = (fact: EvidenceFact) =>
+    `${fact.claimId}\u0000${fact.evidenceId}`;
+  const trusted = new Set<string>();
+  for (const fact of trustedFacts) {
+    if (
+      !isRecord(fact) ||
+      typeof fact.claimId !== 'string' ||
+      typeof fact.evidenceId !== 'string' ||
+      typeof fact.subject !== 'string' ||
+      typeof fact.value !== 'string' ||
+      !evidenceIds.has(fact.evidenceId) ||
+      !citedClaimEvidence.has(claimEvidence(fact))
+    ) {
+      return [
+        finding(
+          'unbound_evidence_fact',
+          'Trusted evidence facts must be well-formed and reference passport evidence.',
+        ),
+      ];
+    }
+    trusted.add(key(fact));
+  }
+  const proposed = new Set<string>();
+  for (const fact of proposal.evidenceFacts) {
+    if (
+      !isRecord(fact) ||
+      typeof fact.claimId !== 'string' ||
+      typeof fact.evidenceId !== 'string' ||
+      typeof fact.subject !== 'string' ||
+      typeof fact.value !== 'string' ||
+      !evidenceIds.has(fact.evidenceId) ||
+      !citedClaimEvidence.has(claimEvidence(fact)) ||
+      !trusted.has(key(fact))
+    ) {
+      return [
+        finding(
+          'unbound_evidence_fact',
+          'Every proposed evidence fact must match trusted loaded evidence.',
+        ),
+      ];
+    }
+    proposed.add(key(fact));
+  }
+  const coveredEvidenceIds = new Set(
+    proposal.evidenceFacts.map((fact) =>
+      isRecord(fact) && typeof fact.evidenceId === 'string'
+        ? fact.evidenceId
+        : '',
+    ),
+  );
+  if (
+    [...trusted].some((fact) => !proposed.has(fact)) ||
+    [...evidenceIds].some((id) => !coveredEvidenceIds.has(id)) ||
+    [...citedClaimEvidence].some(
+      (reference) =>
+        !proposal.evidenceFacts.some(
+          (fact) =>
+            isRecord(fact) &&
+            typeof fact.claimId === 'string' &&
+            typeof fact.evidenceId === 'string' &&
+            `${fact.claimId}\u0000${fact.evidenceId}` === reference,
+        ),
+    )
+  ) {
+    return [
+      finding(
+        'evidence_fact_coverage',
+        'Every trusted or cited evidence item must be represented by a matching evidence fact.',
+      ),
+    ];
+  }
+  return [];
 }
 
 function parseProposal(value: unknown): ProposalResult | null {
@@ -205,6 +305,7 @@ function conflictFindings(
   for (const fact of facts) {
     if (
       !isRecord(fact) ||
+      typeof fact.claimId !== 'string' ||
       typeof fact.subject !== 'string' ||
       typeof fact.value !== 'string'
     ) {

@@ -73,6 +73,7 @@ export interface ProposalClaim {
 }
 
 export interface EvidenceFact {
+  claimId: string;
   evidenceId: string;
   subject: string;
   value: string;
@@ -108,6 +109,7 @@ export interface VerificationInput {
   actor: Actor;
   toolMetadata: ToolMetadata;
   workspacePolicy: WorkspacePolicy;
+  trustedEvidenceFacts: EvidenceFact[];
 }
 
 export interface VerificationFinding {
@@ -116,6 +118,7 @@ export interface VerificationFinding {
     | 'empty_claims'
     | 'empty_evidence'
     | 'missing_evidence_facts'
+    | 'evidence_fact_coverage'
     | 'malformed_proposal'
     | 'missing_citation'
     | 'passport_hash_mismatch'

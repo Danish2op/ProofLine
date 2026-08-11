@@ -287,3 +287,25 @@ wrong workspace/action.
 
 Validation: fix-round RED found the unbound injectable-only path; GREEN passed
 the concrete-entrypoint, server-binding, and duplicate-capture regressions.
+
+## D-032 â€” Task 9 verifier identity is row- and claim-bound
+
+Decision: treat the public action ID as a lookup key only. After loading, use
+the server passport-row UUID for feedback replay, audit lookup, aggregate ID,
+and deterministic event identity; retain the canonical action ID and workspace
+as additional metadata. Refuse a verifier run unless the server row hash and
+latest revision hash are identical. Evidence facts must include a claim ID and
+must match the trusted server fact plus a cited claim/evidence pair; an optional
+provider deadline returns fallback immediately after abort rather than awaiting
+an uncooperative promise.
+
+Reason: action IDs and passport-row IDs identify different database entities,
+so conflating them prevents durable feedback lookup and weakens tenant/action
+identity. Evidence values alone can collapse distinct claims, and an abort-only
+timeout is not a deadline when a provider ignores cancellation.
+
+Validation: strict RED produced three failures for row-ID lookup, mismatched
+row/revision hashes, and same-valued facts covering two claims. Focused GREEN
+passed 3 files / 23 tests; typecheck, agents build, scoped formatting, and diff
+checks passed. No lifecycle transition, migration, live provider, credentials,
+or Task 10+ work was used.

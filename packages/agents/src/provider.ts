@@ -29,6 +29,12 @@ export async function runWithOptionalProvider<T>(
       return { value: await input.fallback() };
     } catch (error) {
       timeout = error instanceof ProviderTimeoutError;
+      if (timeout) {
+        return {
+          value: await input.fallback(),
+          providerFailure: { code: 'provider_timeout', attempts: attempt + 1 },
+        };
+      }
     }
   }
   return {
@@ -65,6 +71,9 @@ async function withinTimeout<T>(
     throw error;
   } finally {
     if (timer !== undefined) clearTimeout(timer);
-    if (timedOut) await promise.catch(() => undefined);
+    if (timedOut) {
+      controller.abort();
+      void promise.catch(() => undefined);
+    }
   }
 }
