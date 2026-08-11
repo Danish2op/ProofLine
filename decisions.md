@@ -270,3 +270,20 @@ Decision: Task 9 uses two separate deterministic agents. The proposer creates a 
 Reason: proposal synthesis and validation need independent responsibilities, and an AI/model-shaped output must never turn into self-authorization.
 
 Validation: focused agent/security tests passed 4 files / 14 tests. They cover canonical deterministic replay, production permission requests, conflicting and stale evidence, missing citations, malformed proposals/provider output, unknown tools, target changes, prompt injection, provider failures, and feedback capture authorization. Typecheck, agents build, Prettier, and `git diff --check` passed. Optional providers are retry/timeout-bounded and fall back to deterministic results; no paid provider is required.
+
+## D-031 — Task 9 verifier boundary is server-authoritative and replay-safe
+
+Decision: the production verifier entrypoint must load the passport and latest
+revision from Supabase after bearer authentication and active verifier-capable
+workspace membership. It binds all security-sensitive verification fields to
+that server record and records feedback only as an append-only audit event with
+workspace, actor, request, idempotency, byte-fingerprint, and passport identity.
+Exact duplicate requests replay their stored result without a second capture;
+conflicting reuse fails closed. The boundary never calls a lifecycle transition.
+
+Reason: an injectable-only handler could be wired around server authority, and
+feedback without durable identity could be duplicated or attributed to the
+wrong workspace/action.
+
+Validation: fix-round RED found the unbound injectable-only path; GREEN passed
+the concrete-entrypoint, server-binding, and duplicate-capture regressions.

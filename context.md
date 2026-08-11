@@ -193,3 +193,20 @@ work was used.
 
 The lockfile change is limited to the three new workspace links required by
 `@proofline/agents`; unrelated lockfile formatting was not rewritten.
+
+## Task 9 fix round 1 status (2026-08-11)
+
+The final review findings are addressed. The concrete `run-verifier` default
+entrypoint now authenticates and authorizes against Supabase, loads and validates
+the server passport/revision, binds verification input to that passport, and
+captures feedback through an append-only audit adapter with request-byte
+idempotency and duplicate replay protection. The verifier rejects empty claims,
+empty evidence, omitted/unbound facts, and missing citations. Optional provider
+calls receive `AbortSignal` and settle cancellation before retry. Proposer
+ordering is locale-independent by codepoint. No lifecycle mutation or paid
+provider was introduced.
+
+Fix-round bounded verification: focused agent/security tests passed 4 files / 21
+tests; `pnpm typecheck` passed; `pnpm --filter @proofline/agents run build`
+passed; and repository-wide `pnpm format:check` passed after formatting the
+reported Task 9 files and lockfile. Task 10 was not started.

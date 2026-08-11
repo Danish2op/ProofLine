@@ -50,3 +50,38 @@ Prettier check. `pnpm-lock.yaml` contains only the required three workspace-link
 entries for `@proofline/agents`; a standalone Prettier check would rewrite
 unrelated lockfile whitespace, so that whole-file rewrite was intentionally not
 included in this bounded Task 9 commit.
+
+## Fix round 1 — final reviewer findings
+
+- The verifier boundary now has a concrete default Supabase-backed production
+  entrypoint. It authenticates a bearer token, checks active workspace
+  membership with verifier-capable roles, loads the action passport and latest
+  revision server-side, validates workspace/action/hash identity, and overwrites
+  untrusted request passport fields with the loaded server values before
+  verification.
+- Feedback is captured through an append-only `audit_events` adapter with
+  workspace, actor, request ID, idempotency key, request-byte fingerprint, and
+  passport hash. Deterministic event identity plus lookup/replay handling means
+  byte-identical duplicates return the original result without a second capture;
+  conflicting reuse fails with `idempotency_conflict`. No lifecycle status is
+  mutated.
+- The verifier rejects empty claims, empty passport evidence, omitted evidence
+  facts, missing citations, and facts whose IDs are absent from passport
+  evidence before any approval disposition.
+- Optional providers now receive `AbortSignal`; timeout aborts and settles the
+  provider before retrying. The regression proves at most one active call,
+  abort delivery for every timed-out attempt, and no late side effect.
+- Proposer sorting uses a locale-independent codepoint comparator for all
+  security-relevant ordering.
+
+Strict TDD evidence for this round:
+
+- RED: the new fix-round suite reported 6 failures / 21 tests for server
+  binding/deduplication, cancellation, locale ordering, and verifier completeness.
+- GREEN: the focused suite passed 4 files / 21 tests after the fixes.
+- `pnpm typecheck` passed and `pnpm --filter @proofline/agents run build` passed.
+- Initial `pnpm format:check` identified only the six changed Task 9 files and
+  `pnpm-lock.yaml`; after formatting those exact files, the repository check
+  passed: `All matched files use Prettier code style!`.
+
+No migration was required. Tasks 10+ remain untouched.

@@ -14,6 +14,18 @@ import {
 
 const placeholderHash = '0'.repeat(64);
 
+export function compareCodePoints(left: string, right: string): number {
+  const leftPoints = Array.from(left, (value) => value.codePointAt(0)!);
+  const rightPoints = Array.from(right, (value) => value.codePointAt(0)!);
+  const length = Math.min(leftPoints.length, rightPoints.length);
+  for (let index = 0; index < length; index += 1) {
+    if (leftPoints[index] !== rightPoints[index]) {
+      return leftPoints[index] - rightPoints[index];
+    }
+  }
+  return leftPoints.length - rightPoints.length;
+}
+
 /** Builds a proposal only; it has no execution, approval, or persistence capability. */
 export class ProposerAgent {
   private readonly replays = new Map<
@@ -38,7 +50,7 @@ export class ProposerAgent {
 
 function proposeDeterministically(input: ProposalInput): ProposalResult {
   const evidence = [...input.evidence].sort((left, right) =>
-    left.reference.evidenceId.localeCompare(right.reference.evidenceId),
+    compareCodePoints(left.reference.evidenceId, right.reference.evidenceId),
   );
   const basePassport = passportFrom(
     input,
@@ -161,7 +173,7 @@ function proposalClaims(evidence: ProposalInput['evidence']): ProposalClaim[] {
       ...claim,
       evidenceRefs: [...claim.evidenceRefs].sort(),
     }))
-    .sort((left, right) => left.claimId.localeCompare(right.claimId));
+    .sort((left, right) => compareCodePoints(left.claimId, right.claimId));
 }
 
 function facts(evidence: ProposalInput['evidence']): EvidenceFact[] {
@@ -174,7 +186,8 @@ function facts(evidence: ProposalInput['evidence']): EvidenceFact[] {
       })),
     )
     .sort((left, right) =>
-      `${left.subject}:${left.value}:${left.evidenceId}`.localeCompare(
+      compareCodePoints(
+        `${left.subject}:${left.value}:${left.evidenceId}`,
         `${right.subject}:${right.value}:${right.evidenceId}`,
       ),
     );

@@ -67,6 +67,29 @@ describe('ProposerAgent', () => {
       ),
     ).rejects.toMatchObject({ code: 'idempotency_conflict' });
   });
+
+  it('orders evidence by codepoint bytes so passport hashes are locale-independent', async () => {
+    const evidence = proposalInput().evidence;
+    const result = await new ProposerAgent().propose(
+      proposalInput({
+        evidence: [
+          {
+            ...evidence[0],
+            reference: { ...evidence[0].reference, evidenceId: 'a' },
+          },
+          {
+            ...evidence[0],
+            reference: { ...evidence[0].reference, evidenceId: 'Z' },
+          },
+        ],
+      }),
+    );
+
+    expect(result.evidenceRefs.map((item) => item.evidenceId)).toEqual([
+      'Z',
+      'a',
+    ]);
+  });
 });
 
 function proposalInput(overrides: Partial<ProposalInput> = {}): ProposalInput {

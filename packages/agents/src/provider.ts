@@ -18,7 +18,9 @@ export async function runWithOptionalProvider<T>(
   let timeout = false;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
-      const output = await withinTimeout(input.provider.run(), timeoutMs);
+      const controller = new AbortController();
+      const operation = input.provider.run(controller.signal);
+      const output = await withinTimeout(operation, timeoutMs, controller);
       if (input.parse !== undefined && input.parse(output) === null) {
         throw new Error(
           'Optional provider output did not match its typed schema.',
@@ -43,16 +45,26 @@ class ProviderTimeoutError extends Error {}
 async function withinTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
+  controller: AbortController,
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
   try {
     return await Promise.race([
       promise,
       new Promise<T>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new ProviderTimeoutError()), timeoutMs);
+        timer = setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+          reject(new ProviderTimeoutError());
+        }, timeoutMs);
       }),
     ]);
+  } catch (error) {
+    if (timedOut) throw new ProviderTimeoutError();
+    throw error;
   } finally {
     if (timer !== undefined) clearTimeout(timer);
+    if (timedOut) await promise.catch(() => undefined);
   }
 }

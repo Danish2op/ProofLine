@@ -113,13 +113,17 @@ export interface VerificationInput {
 export interface VerificationFinding {
   code:
     | 'conflicting_evidence'
+    | 'empty_claims'
+    | 'empty_evidence'
+    | 'missing_evidence_facts'
     | 'malformed_proposal'
     | 'missing_citation'
     | 'passport_hash_mismatch'
     | 'policy_denied'
     | 'policy_mismatch'
     | 'scope_expansion'
-    | 'stale_evidence';
+    | 'stale_evidence'
+    | 'unbound_evidence_fact';
   message: string;
 }
 
@@ -134,7 +138,7 @@ export interface VerificationResult {
 }
 
 export interface OptionalProvider {
-  run(): Promise<unknown>;
+  run(signal: AbortSignal): Promise<unknown>;
 }
 
 export interface OptionalProviderRun<T> {

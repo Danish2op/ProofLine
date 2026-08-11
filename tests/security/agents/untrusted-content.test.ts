@@ -71,6 +71,48 @@ describe('untrusted agent content', () => {
     });
     expect(result.value.passport.target).toBe('sandbox://demo-web/staging');
   });
+
+  it('aborts each timed-out provider before retrying and leaves no active or late work', async () => {
+    let active = 0;
+    let maxActive = 0;
+    let aborted = 0;
+    let lateSideEffects = 0;
+    const result = await runWithOptionalProvider({
+      fallback: () => new ProposerAgent().propose(proposalInput()),
+      provider: {
+        run(signal) {
+          active += 1;
+          maxActive = Math.max(maxActive, active);
+          return new Promise((resolve, reject) => {
+            const onAbort = () => {
+              aborted += 1;
+              active -= 1;
+              reject(new Error('aborted'));
+            };
+            signal.addEventListener('abort', onAbort, { once: true });
+            setTimeout(() => {
+              if (!signal.aborted) {
+                lateSideEffects += 1;
+                active -= 1;
+                resolve({ ok: true });
+              }
+            }, 100);
+          });
+        },
+      },
+      retries: 1,
+      timeoutMs: 5,
+    });
+
+    expect(result.providerFailure).toEqual({
+      code: 'provider_timeout',
+      attempts: 2,
+    });
+    expect(aborted).toBe(2);
+    expect(maxActive).toBe(1);
+    expect(active).toBe(0);
+    expect(lateSideEffects).toBe(0);
+  });
 });
 
 function proposalInput(overrides: Partial<ProposalInput> = {}): ProposalInput {

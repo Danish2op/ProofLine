@@ -74,8 +74,31 @@ function verifyDeterministically(input: VerificationInput): VerificationResult {
       ),
     );
   }
+  if (passport.evidence.length === 0) {
+    findings.push(
+      finding('empty_evidence', 'A proposal must contain passport evidence.'),
+    );
+  }
+  if (proposal.claims.length === 0) {
+    findings.push(
+      finding('empty_claims', 'A proposal must contain at least one claim.'),
+    );
+  }
+  if (proposal.evidenceFacts.length === 0) {
+    findings.push(
+      finding(
+        'missing_evidence_facts',
+        'Evidence facts are required to independently check conflicts.',
+      ),
+    );
+  }
   findings.push(...citationFindings(proposal.claims, passport));
-  findings.push(...conflictFindings(proposal.evidenceFacts));
+  findings.push(
+    ...conflictFindings(
+      proposal.evidenceFacts,
+      new Set(passport.evidence.map((item) => item.evidenceId)),
+    ),
+  );
 
   const policy = evaluatePolicy({
     passport,
@@ -117,11 +140,15 @@ function verifyDeterministically(input: VerificationInput): VerificationResult {
   const hardReject = findings.some((entry) =>
     [
       'malformed_proposal',
+      'empty_claims',
+      'empty_evidence',
+      'missing_evidence_facts',
       'passport_hash_mismatch',
       'policy_denied',
       'policy_mismatch',
       'scope_expansion',
       'stale_evidence',
+      'unbound_evidence_fact',
     ].includes(entry.code),
   );
   return rejection(
@@ -170,7 +197,10 @@ function citationFindings(
     : [];
 }
 
-function conflictFindings(facts: EvidenceFact[]): VerificationFinding[] {
+function conflictFindings(
+  facts: EvidenceFact[],
+  evidenceIds: Set<string>,
+): VerificationFinding[] {
   const values = new Map<string, Set<string>>();
   for (const fact of facts) {
     if (
@@ -179,6 +209,14 @@ function conflictFindings(facts: EvidenceFact[]): VerificationFinding[] {
       typeof fact.value !== 'string'
     ) {
       return [finding('malformed_proposal', 'Evidence facts are malformed.')];
+    }
+    if (!evidenceIds.has(fact.evidenceId)) {
+      return [
+        finding(
+          'unbound_evidence_fact',
+          'Every evidence fact must reference a passport evidence ID.',
+        ),
+      ];
     }
     const observed = values.get(fact.subject) ?? new Set<string>();
     observed.add(fact.value);

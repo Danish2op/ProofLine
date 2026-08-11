@@ -131,6 +131,48 @@ describe('VerifierAgent', () => {
     });
   });
 
+  it('rejects empty claims before approving', async () => {
+    const proposal = await new ProposerAgent().propose(proposalInput());
+    const result = await new VerifierAgent().verify(
+      verificationInput({ ...proposal, claims: [] }),
+    );
+
+    expect(result.decision).toBe('reject');
+    expect(result.escalationReasons).toContain('empty_claims');
+  });
+
+  it('rejects empty passport evidence before approving', async () => {
+    const proposal = await new ProposerAgent().propose(proposalInput());
+    const withoutEvidence = {
+      ...proposal,
+      passport: { ...proposal.passport, evidence: [] },
+    };
+    const result = await new VerifierAgent().verify(
+      verificationInput(withoutEvidence),
+    );
+
+    expect(result.decision).toBe('reject');
+    expect(result.escalationReasons).toContain('empty_evidence');
+  });
+
+  it('rejects omitted evidence facts and facts not bound to passport evidence IDs', async () => {
+    const proposal = await new ProposerAgent().propose(proposalInput());
+    const missingFacts = await new VerifierAgent().verify(
+      verificationInput({ ...proposal, evidenceFacts: [] }),
+    );
+    const unboundFact = await new VerifierAgent().verify(
+      verificationInput({
+        ...proposal,
+        evidenceFacts: [
+          { ...proposal.evidenceFacts[0], evidenceId: 'not-in-passport' },
+        ],
+      }),
+    );
+
+    expect(missingFacts.escalationReasons).toContain('missing_evidence_facts');
+    expect(unboundFact.escalationReasons).toContain('unbound_evidence_fact');
+  });
+
   it('reuses an exact verification replay and rejects conflicting request reuse', async () => {
     const proposal = await new ProposerAgent().propose(proposalInput());
     const agent = new VerifierAgent();
