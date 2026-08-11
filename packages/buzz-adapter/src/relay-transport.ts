@@ -36,6 +36,7 @@ export class Nip01RelayTransport implements BuzzTransport {
   private readonly authProbeTimeoutMs: number;
   private socket: RelaySocket | null = null;
   private connecting: Promise<RelaySocket> | null = null;
+  private connectionGeneration = 0;
   private authState: RelayAuthenticationState = 'probing';
   private authFailure: Error | null = null;
   private authPromise: Promise<void> = Promise.resolve();
@@ -107,7 +108,8 @@ export class Nip01RelayTransport implements BuzzTransport {
   }
 
   close(): void {
-    this.socket?.close();
+    const socket = this.socket;
+    this.connectionGeneration += 1;
     this.socket = null;
     this.connecting = null;
     const error = new RelayTransportError(
@@ -116,6 +118,7 @@ export class Nip01RelayTransport implements BuzzTransport {
     );
     this.rejectAll(error);
     this.stopAuthentication(error);
+    socket?.close();
   }
 
   private connect(): Promise<RelaySocket> {
@@ -124,11 +127,14 @@ export class Nip01RelayTransport implements BuzzTransport {
 
     this.connecting = new Promise<RelaySocket>((resolve, reject) => {
       const socket = this.createSocket();
+      const connectionGeneration = ++this.connectionGeneration;
       let opened = false;
       let settled = false;
       const connectionTimer = setTimeout(() => {
-        if (settled) return;
+        if (settled || this.connectionGeneration !== connectionGeneration)
+          return;
         settled = true;
+        this.connectionGeneration += 1;
         this.connecting = null;
         socket.close();
         reject(
@@ -139,21 +145,24 @@ export class Nip01RelayTransport implements BuzzTransport {
         );
       }, this.publicationTimeoutMs);
       socket.onopen = () => {
-        if (settled) return;
+        if (settled || this.connectionGeneration !== connectionGeneration)
+          return;
         settled = true;
         clearTimeout(connectionTimer);
         opened = true;
         this.socket = socket;
-        this.startAuthenticationProbe();
+        this.startAuthenticationProbe(socket, connectionGeneration);
         resolve(socket);
       };
       socket.onmessage = (event) => {
-        void this.handleFrame(event.data);
+        void this.handleFrame(event.data, socket, connectionGeneration);
       };
       socket.onerror = () => {
-        if (settled) return;
+        if (settled || this.connectionGeneration !== connectionGeneration)
+          return;
         settled = true;
         clearTimeout(connectionTimer);
+        this.connectionGeneration += 1;
         this.connecting = null;
         reject(
           new RelayTransportError(
@@ -163,6 +172,7 @@ export class Nip01RelayTransport implements BuzzTransport {
         );
       };
       socket.onclose = () => {
+        if (this.connectionGeneration !== connectionGeneration) return;
         if (!opened && !settled) {
           settled = true;
           clearTimeout(connectionTimer);
@@ -174,6 +184,7 @@ export class Nip01RelayTransport implements BuzzTransport {
             ),
           );
         }
+        this.connectionGeneration += 1;
         const error = new RelayTransportError(
           'relay_unavailable',
           'Relay connection closed.',
@@ -187,7 +198,12 @@ export class Nip01RelayTransport implements BuzzTransport {
     return this.connecting;
   }
 
-  private async handleFrame(data: string): Promise<void> {
+  private async handleFrame(
+    data: string,
+    socket: RelaySocket,
+    connectionGeneration: number,
+  ): Promise<void> {
+    if (!this.isCurrentConnection(socket, connectionGeneration)) return;
     let frame: unknown;
     try {
       frame = JSON.parse(data);
@@ -210,7 +226,7 @@ export class Nip01RelayTransport implements BuzzTransport {
       return;
     }
     if (frame[0] === 'AUTH' && typeof frame[1] === 'string') {
-      this.beginAuthentication(frame[1]);
+      this.beginAuthentication(frame[1], socket, connectionGeneration);
       return;
     }
     if (
@@ -259,7 +275,11 @@ export class Nip01RelayTransport implements BuzzTransport {
     }
   }
 
-  private async answerChallenge(challenge: string): Promise<void> {
+  private async answerChallenge(
+    challenge: string,
+    socket: RelaySocket,
+    connectionGeneration: number,
+  ): Promise<void> {
     const auth = await this.options.signer.sign({
       created_at: Math.floor(Date.now() / 1_000),
       kind: 22242,
@@ -269,11 +289,15 @@ export class Nip01RelayTransport implements BuzzTransport {
       ],
       content: '',
     });
+    if (!this.isCurrentConnection(socket, connectionGeneration)) return;
     this.authEventId = auth.id;
-    this.socket?.send(JSON.stringify(['AUTH', auth]));
+    socket.send(JSON.stringify(['AUTH', auth]));
   }
 
-  private startAuthenticationProbe(): void {
+  private startAuthenticationProbe(
+    socket: RelaySocket,
+    connectionGeneration: number,
+  ): void {
     this.clearAuthenticationProbe();
     this.authState = 'probing';
     this.authFailure = null;
@@ -281,13 +305,18 @@ export class Nip01RelayTransport implements BuzzTransport {
     this.authQueue.clear();
     this.createAuthenticationPromise();
     this.authProbeTimer = setTimeout(() => {
+      if (!this.isCurrentConnection(socket, connectionGeneration)) return;
       if (this.authState !== 'probing') return;
       this.authState = 'unauthenticated';
       this.resolveAuthentication();
     }, this.authProbeTimeoutMs);
   }
 
-  private beginAuthentication(challenge: string): void {
+  private beginAuthentication(
+    challenge: string,
+    socket: RelaySocket,
+    connectionGeneration: number,
+  ): void {
     if (
       this.authState === 'authenticated' ||
       this.authState === 'authenticating' ||
@@ -303,16 +332,19 @@ export class Nip01RelayTransport implements BuzzTransport {
     for (const [eventId, pending] of this.pending) {
       if (!pending.sent) this.authQueue.add(eventId);
     }
-    void this.answerChallenge(challenge).catch((error: unknown) => {
-      this.failAuthentication(
-        error instanceof Error
-          ? error
-          : new RelayTransportError(
-              'relay_rejected',
-              'Relay authentication signing failed.',
-            ),
-      );
-    });
+    void this.answerChallenge(challenge, socket, connectionGeneration).catch(
+      (error: unknown) => {
+        if (!this.isCurrentConnection(socket, connectionGeneration)) return;
+        this.failAuthentication(
+          error instanceof Error
+            ? error
+            : new RelayTransportError(
+                'relay_rejected',
+                'Relay authentication signing failed.',
+              ),
+        );
+      },
+    );
   }
 
   private awaitAuthenticationChallenge(): void {
@@ -407,6 +439,16 @@ export class Nip01RelayTransport implements BuzzTransport {
     if (this.options.socketFactory)
       return this.options.socketFactory(this.relayUrl);
     return new WebSocket(this.relayUrl) as unknown as RelaySocket;
+  }
+
+  private isCurrentConnection(
+    socket: RelaySocket,
+    connectionGeneration: number,
+  ): boolean {
+    return (
+      this.connectionGeneration === connectionGeneration &&
+      this.socket === socket
+    );
   }
 
   private rejectAll(error: Error): void {

@@ -117,6 +117,82 @@ describe('Buzz relay adapter', () => {
     ).resolves.toEqual([undefined, undefined, undefined]);
   });
 
+  it.each([
+    { authOutcome: 'resolve' as const, description: 'resolves' },
+    { authOutcome: 'reject' as const, description: 'rejects' },
+  ])(
+    'ignores a stale auth signer that $description after reconnecting',
+    async ({ authOutcome }) => {
+      const firstSocket = new FakeRelaySocket();
+      const secondSocket = new FakeRelaySocket();
+      const sockets = [firstSocket, secondSocket];
+      const signer = controllableAuthSigner();
+      const transport = new Nip01RelayTransport({
+        relayUrl: 'wss://relay.example.test',
+        signer,
+        socketFactory: () => {
+          const socket = sockets.shift();
+          if (!socket) throw new Error('Unexpected relay reconnect.');
+          return socket;
+        },
+        publicationTimeoutMs: 500,
+        authProbeTimeoutMs: 50,
+      });
+      const firstEvent = await deterministicSigner().sign({
+        created_at: 1_700_000_000,
+        kind: 9,
+        tags: [['h', 'proofline-demo-channel']],
+        content: 'first connection proposal',
+      });
+      const secondEvent = await deterministicSigner().sign({
+        created_at: 1_700_000_001,
+        kind: 9,
+        tags: [['h', 'proofline-demo-channel']],
+        content: 'second connection proposal',
+      });
+
+      const firstPublication = transport.publish(firstEvent);
+      firstSocket.open();
+      await Promise.resolve();
+      firstSocket.receive(['AUTH', 'stale-challenge']);
+      await signer.authSigningStarted;
+
+      firstSocket.close();
+      await expect(firstPublication).rejects.toMatchObject({
+        code: 'relay_unavailable',
+      });
+
+      const secondPublication = transport.publish(secondEvent);
+      let secondOutcome: 'pending' | 'resolved' | 'rejected' = 'pending';
+      void secondPublication.then(
+        () => {
+          secondOutcome = 'resolved';
+        },
+        () => {
+          secondOutcome = 'rejected';
+        },
+      );
+      await waitFor(() => secondSocket.onopen !== null);
+      secondSocket.open();
+      await Promise.resolve();
+
+      signer.settleAuthSigning(authOutcome);
+      await signer.authSigningSettled;
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+      expect(
+        secondSocket.frames.filter((frame) => frame[0] === 'AUTH'),
+      ).toEqual([]);
+      expect(secondOutcome).toBe('pending');
+
+      await waitFor(() =>
+        secondSocket.frames.some((frame) => frame[0] === 'EVENT'),
+      );
+      secondSocket.receive(['OK', secondEvent.id, true, 'stored']);
+      await expect(secondPublication).resolves.toBeUndefined();
+    },
+  );
+
   it('uses the NIP-01 transport by default instead of requiring an opaque publisher', async () => {
     const socket = new FakeRelaySocket();
     const client = new BuzzAdapterClient({
@@ -431,6 +507,53 @@ function delayedAuthSigner() {
       if (event.kind === 22242) {
         markAuthSigningStarted?.();
         await authSigningFinished;
+      }
+      return signer.sign(event);
+    },
+  };
+}
+
+function controllableAuthSigner() {
+  const signer = deterministicSigner();
+  let markAuthSigningStarted: (() => void) | undefined;
+  let markAuthSigningSettled: (() => void) | undefined;
+  let resolveAuthSigning: (() => void) | undefined;
+  let rejectAuthSigning: ((error: Error) => void) | undefined;
+  const authSigningStarted = new Promise<void>((resolve) => {
+    markAuthSigningStarted = resolve;
+  });
+  const authSigningSettled = new Promise<void>((resolve) => {
+    markAuthSigningSettled = resolve;
+  });
+  const authSigningFinished = new Promise<void>((resolve, reject) => {
+    resolveAuthSigning = resolve;
+    rejectAuthSigning = reject;
+  });
+  return {
+    ...signer,
+    authSigningStarted,
+    authSigningSettled,
+    settleAuthSigning(outcome: 'resolve' | 'reject') {
+      if (outcome === 'resolve') {
+        resolveAuthSigning?.();
+      } else {
+        rejectAuthSigning?.(new Error('Stale authentication signing failed.'));
+      }
+    },
+    async sign(event: {
+      created_at: number;
+      kind: number;
+      tags: string[][];
+      content: string;
+    }) {
+      if (event.kind === 22242) {
+        markAuthSigningStarted?.();
+        try {
+          await authSigningFinished;
+          return await signer.sign(event);
+        } finally {
+          markAuthSigningSettled?.();
+        }
       }
       return signer.sign(event);
     },

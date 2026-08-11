@@ -105,3 +105,15 @@ Validation: fix round 4 added a delayed-signer concurrency regression that
 holds a challenge open, publishes both before and after the AUTH frame exists,
 and observes all events only after the successful AUTH `OK`. The focused suite
 passed 37 tests with one explicitly credential-gated live test skipped.
+
+## D-016 — Invalidate stale relay auth continuations
+
+Decision: every async authentication operation captures its socket and connection generation; after close/reconnect, stale continuations may not send frames or mutate the current connection’s queue/state.
+
+Reason: delayed signing on a dead connection must never authenticate or fail a newly connected socket.
+
+Validation: fix round 5 added deterministic reconnect regressions for both a
+resolved and rejected stale signer. Socket B receives no stale `AUTH`, its
+publication remains pending until B's own auth probe completes, and it then
+publishes successfully. The focused Task 7 suite passed 39 tests with one
+explicitly credential-gated live relay test skipped.

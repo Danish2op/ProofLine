@@ -362,6 +362,22 @@ pnpm db:verify
 SKIPPED: set SUPABASE_DB_URL to run live Supabase database probes.
 ```
 
+Final user-requested handoff checks on the scoped tree:
+
+```text
+pnpm exec vitest run tests/integration/buzz-adapter/relay.test.ts --reporter=dot
+Test Files  1 passed (1)
+Tests  11 passed | 1 skipped (12)
+Duration  805ms (tests 472ms)
+
+pnpm typecheck
+$ tsc --noEmit
+```
+
+A later redundant `pnpm test` rerun was user-interrupted and provides no
+additional result; the completed full-suite result recorded above remains the
+round's full-test evidence.
+
 ### Changed files
 
 - `packages/buzz-adapter/src/relay-transport.ts`
@@ -373,3 +389,87 @@ SKIPPED: set SUPABASE_DB_URL to run live Supabase database probes.
 No live relay or Supabase probe was attempted: no credentials are available.
 The one skipped relay test and `pnpm db:verify` remain explicitly
 credential-gated; no live authentication or publication is claimed.
+
+## Fix Round 5 (2026-08-11)
+
+### Status
+
+`IMPLEMENTED_PENDING_FINAL_REVIEW`. Each relay connection now has a monotonic
+generation paired with its exact socket. Frame handling, auth-probe timers, and
+the success and failure continuations of delayed AUTH signing validate both
+values before sending a frame or mutating authentication/queue state. Closing,
+timing out, or failing a connection invalidates its generation and retains the
+existing bounded timer, pending-publication, auth-promise, and queue cleanup.
+
+### RED / GREEN evidence
+
+The regression runs the same reconnect scenario for a stale signer that
+resolves and one that rejects: socket A receives a challenge and blocks in the
+signer, A closes, socket B connects and queues a publication, then A's signer is
+settled. The test asserts that B receives no stale `AUTH`, its publication is
+not rejected or resolved by A, and B publishes successfully through its own
+bounded unauthenticated fallback.
+
+```text
+pnpm vitest run tests/integration/buzz-adapter/relay.test.ts --testTimeout=1000 --hookTimeout=1000
+Test Files  1 failed (1)
+Tests  2 failed | 9 passed | 1 skipped (12)
+
+resolve RED: expected socket B AUTH frames [], received A's stale AUTH frame
+reject RED: expected socket B publication outcome pending, received rejected
+```
+
+After adding the socket/generation ownership checks, the same command passed:
+
+```text
+Test Files  1 passed (1)
+Tests  11 passed | 1 skipped (12)
+```
+
+### Verification
+
+```text
+pnpm vitest run tests/unit/buzz-adapter tests/integration/buzz-adapter tests/integration/database/constraints.test.ts --testTimeout=5000 --hookTimeout=5000
+Test Files  6 passed (6)
+Tests  39 passed | 1 skipped (40)
+
+pnpm typecheck
+$ tsc --noEmit
+
+pnpm lint
+$ eslint .
+
+pnpm build
+Scope: 9 of 10 workspace projects
+... packages/buzz-adapter build: Done
+
+pnpm test
+Test Files  19 passed (19)
+Tests  211 passed | 1 skipped (212)
+
+pnpm format:check
+Checking formatting...
+All matched files use Prettier code style!
+
+git diff --check
+# exit 0 (Git emitted only the repository's LF-to-CRLF checkout warnings)
+
+pnpm db:verify
+SKIPPED: set SUPABASE_DB_URL to run live Supabase database probes.
+```
+
+### Changed files
+
+- `packages/buzz-adapter/src/relay-transport.ts`
+- `tests/integration/buzz-adapter/relay.test.ts`
+- `context.md`, `decisions.md`, and the Task 7 execution ledger/report
+
+### Live-test status
+
+No live credentials were created, recovered, or supplied. The live relay test
+remains explicitly skipped, and `pnpm db:verify` reports its missing
+`SUPABASE_DB_URL` gate. No live authentication, publication, migration, or
+database success is claimed.
+
+Fix commit: `fix: invalidate stale buzz relay authentication` (this report is
+included in the same scoped commit; use repository history for its object ID).

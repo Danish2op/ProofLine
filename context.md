@@ -34,9 +34,10 @@ Completed and reviewed:
 5. Supabase schema/RLS/audit; migrations through `0007` applied to linked project.
 6. Auth/authz and middleware; final scoped review approved.
 
-Task 7 fix round 4 implementation is complete pending a fresh independent
-scoped review. Base implementation commits were `699b295`, `b86879c`; prior
-fix commits are `71a59a6`, `fab1b30`, and `d59e5d2`.
+Task 7 fix round 5 is implemented pending the final independent scoped review.
+Base implementation commits were `699b295`, `b86879c`; prior fix commits are
+`71a59a6`, `fab1b30`, `d59e5d2`, and `bc7573e`. The round 5 implementation is
+the current scoped commit.
 
 Task 7 review findings that must be fixed before Task 8:
 
@@ -53,6 +54,10 @@ Earlier findings already addressed in `71a59a6` but must not regress: DB-backed 
 7. Concurrent publications could escape the NIP-42 gate while AUTH signing
    was pending; a publication after `authEventId` existed could also be
    skipped by the flush. Addressed in fix round 4; independent review pending.
+8. A delayed signer from a closed socket can still write AUTH through a newly
+   reconnected socket or reject its queue; auth work must validate a connection
+   generation/socket identity before mutating shared state. Addressed in fix
+   round 5 with generation- and socket-scoped continuations; final review pending.
 
 ## Credentials and external systems
 
@@ -76,8 +81,8 @@ Earlier findings already addressed in `71a59a6` but must not regress: DB-backed 
 
 ## Next exact action
 
-Obtain a fresh scoped review for Task 7 fix round 4. Do not begin Task 8 until
-that review approves the Task 7 adapter.
+Obtain the final independent scoped review for Task 7 fix round 5. Do not begin
+Task 8 until that review approves the Task 7 adapter.
 
 ## Do not do
 
