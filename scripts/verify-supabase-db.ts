@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { Client } from 'pg';
 
@@ -19,44 +20,52 @@ const migrationNames = [
   '0011_task_7_signed_passport_binding.sql',
 ] as const;
 
-const dbUrl = process.env.SUPABASE_DB_URL;
-const shouldApply = process.argv.includes('--apply');
+async function main(): Promise<void> {
+  const dbUrl = process.env.SUPABASE_DB_URL;
+  const shouldApply = process.argv.includes('--apply');
 
-if (!dbUrl) {
-  console.log(
-    'SKIPPED: set SUPABASE_DB_URL to run live Supabase database probes.',
-  );
-  process.exit(0);
-}
-
-if (
-  shouldApply &&
-  process.env.SUPABASE_DB_VERIFY_DISPOSABLE !== 'I_UNDERSTAND'
-) {
-  console.error(
-    'REFUSED: --apply requires SUPABASE_DB_VERIFY_DISPOSABLE=I_UNDERSTAND.',
-  );
-  process.exit(1);
-}
-
-const client = new Client({ connectionString: dbUrl });
-
-try {
-  await client.connect();
-  if (shouldApply) await applyMigrations(client);
-
-  await client.query('BEGIN');
-  try {
-    await verifyLiveDatabase(client);
-  } finally {
-    await client.query('ROLLBACK');
+  if (!dbUrl) {
+    console.log(
+      'SKIPPED: set SUPABASE_DB_URL to run live Supabase database probes.',
+    );
+    return;
   }
 
-  console.log(
-    'PASS: live Supabase lifecycle, grant, and cross-tenant RLS probes passed.',
-  );
-} finally {
-  await client.end();
+  if (
+    shouldApply &&
+    process.env.SUPABASE_DB_VERIFY_DISPOSABLE !== 'I_UNDERSTAND'
+  ) {
+    console.error(
+      'REFUSED: --apply requires SUPABASE_DB_VERIFY_DISPOSABLE=I_UNDERSTAND.',
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  const client = new Client({ connectionString: dbUrl });
+
+  try {
+    await client.connect();
+    if (shouldApply) await applyMigrations(client);
+
+    await client.query('BEGIN');
+    try {
+      await verifyLiveDatabase(client);
+    } finally {
+      await client.query('ROLLBACK');
+    }
+
+    console.log(
+      'PASS: live Supabase lifecycle, grant, and cross-tenant RLS probes passed.',
+    );
+  } finally {
+    await client.end();
+  }
+}
+
+const invokedPath = process.argv[1];
+if (invokedPath && import.meta.url === pathToFileURL(invokedPath).href) {
+  await main();
 }
 
 async function applyMigrations(client: Client): Promise<void> {
@@ -189,9 +198,14 @@ async function verifyVerifiedBuzzApprovalRpc(
     passportValues(context, workspaceId, 'DRAFT', null, true),
   );
   const secondActionPassportId = secondPassport.rows[0]?.id;
+  const secondActionPassportHash = secondPassport.rows[0]?.passport_hash;
   assert.ok(
     secondActionPassportId,
     'second Buzz RPC probe passport was not created',
+  );
+  assert.ok(
+    secondActionPassportHash,
+    'second Buzz RPC probe passport hash was not created',
   );
   await client.query(
     'update public.action_passports set status = $1 where id = $2',
@@ -256,17 +270,18 @@ async function verifyVerifiedBuzzApprovalRpc(
   );
   assert.equal(selfApproval.rows[0]?.result, 'rejected');
 
-  const changesProposal = validBuzzEvent(
-    '6',
-    '1',
-    [['h', 'proofline-rpc-probe']],
-    9,
-    '{"proofline":{"type":"proposal"}}',
-  );
-  await client.query(
-    "select public.record_verified_buzz_proposal($1, $2, 'wss://relay.example.test/', $3::jsonb)",
-    [workspaceId, secondActionPassportId, JSON.stringify(changesProposal)],
-  );
+  const changesProposal = createVerifiedBuzzProposal({
+    eventNibble: '6',
+    signerNibble: '1',
+    channelId: 'proofline-rpc-probe',
+    passportHash: secondActionPassportHash,
+  });
+  await recordExpectedVerifiedBuzzProposal(client, {
+    workspaceId,
+    actionPassportId: secondActionPassportId,
+    proposal: changesProposal,
+    expectedResult: 'stored',
+  });
   const changesApproval = validBuzzEvent(
     '7',
     '2',
@@ -284,6 +299,53 @@ async function verifyVerifiedBuzzApprovalRpc(
     [secondActionPassportId],
   );
   assert.equal(changesStatus.rows[0]?.status, 'BLOCKED');
+}
+
+interface ProbeQueryClient {
+  query(
+    sql: string,
+    values: unknown[],
+  ): Promise<{ rows: Array<{ result?: string }> }>;
+}
+
+export function createVerifiedBuzzProposal(input: {
+  eventNibble: string;
+  signerNibble: string;
+  channelId: string;
+  passportHash: string;
+}): Record<string, unknown> {
+  return validBuzzEvent(
+    input.eventNibble,
+    input.signerNibble,
+    [['h', input.channelId]],
+    9,
+    JSON.stringify({
+      proofline: {
+        type: 'proposal',
+        passportHash: input.passportHash,
+      },
+    }),
+  );
+}
+
+export async function recordExpectedVerifiedBuzzProposal(
+  client: ProbeQueryClient,
+  input: {
+    workspaceId: string;
+    actionPassportId: string;
+    proposal: Record<string, unknown>;
+    expectedResult: 'stored' | 'rejected' | 'duplicate';
+  },
+): Promise<void> {
+  const result = await client.query(
+    "select public.record_verified_buzz_proposal($1, $2, 'wss://relay.example.test/', $3::jsonb) as result",
+    [input.workspaceId, input.actionPassportId, JSON.stringify(input.proposal)],
+  );
+  assert.equal(
+    result.rows[0]?.result,
+    input.expectedResult,
+    `Expected verified Buzz proposal RPC result ${input.expectedResult}.`,
+  );
 }
 
 function validBuzzEvent(

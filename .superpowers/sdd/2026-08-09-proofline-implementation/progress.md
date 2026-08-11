@@ -20,3 +20,5 @@ Task 7: fix round 3/5 (3 findings open: NIP-42 auth gating, connect timeout, sig
 Task 7: fix round 4/5 (1 finding addressed: per-connection NIP-42 auth state/promise/queue prevents concurrent escape and flush omission; fresh independent review pending; fix base d59e5d2)
 Task 7: fix round 5/5 (stale auth continuations invalidated; final review found duplicate-publication hang and stale live DB probe; task blocked, commit 464acb7)
 Task 7: fix round 5/5 (1 P1 addressed: stale signer continuations are invalidated by socket identity and connection generation; focused 39 passed/1 skipped, full 211 passed/1 skipped; final independent review pending)
+Task 7: post-review remediation implemented (duplicate-ID promise reuse/conflict rejection and migration-0011 request_changes probe repaired; RED 3 relay failures plus missing probe helper, GREEN 16 passed/1 skipped; fresh independent review pending)
+Task 7: post-review remediation fresh bounded verification (2026-08-11): relay/probe Vitest 16 passed/1 skipped; pnpm typecheck exit 0; pnpm db:verify expected SUPABASE_DB_URL skip; no full suite run; fresh independent review pending

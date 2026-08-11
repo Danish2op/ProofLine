@@ -34,7 +34,12 @@ Completed and reviewed:
 5. Supabase schema/RLS/audit; migrations through `0007` applied to linked project.
 6. Auth/authz and middleware; final scoped review approved.
 
-Task 7 fix round 5 is implemented but **not approved** after final independent review.
+Task 7 post-review remediation is implemented but **not yet approved** by a
+fresh independent scoped review.
+Its fresh bounded verification on 2026-08-11 passed: the relay/probe Vitest
+command reported 16 passed and 1 credential-gated relay skip; `pnpm typecheck`
+exited 0. `pnpm db:verify` exited 0 with the expected missing-
+`SUPABASE_DB_URL` skip, so it made no live connection. No full suite was run.
 Base implementation commits were `699b295`, `b86879c`; prior fix commits are
 `71a59a6`, `fab1b30`, `d59e5d2`, and `bc7573e`. The round 5 implementation is
 the current scoped commit.
@@ -60,10 +65,13 @@ Earlier findings already addressed in `71a59a6` but must not regress: DB-backed 
    round 5 with generation- and socket-scoped continuations; final review pending.
 9. Duplicate publication calls using the same event ID overwrite the pending
    entry, allowing the first promise to remain pending after the second resolves.
+   (Addressed in post-review remediation with in-flight promise reuse for
+   equivalent envelopes and deterministic rejection for conflicting payloads.)
 10. `scripts/verify-supabase-db.ts` is stale for migration 0011: it does not
     retain/use the second passport hash and omits `passportHash` from the second
     proposal, so the live request_changes probe would reject and then assert the
-    wrong result.
+    wrong result. (Addressed in post-review remediation with a hash-bound second
+    proposal and asserted proposal RPC result.)
 
 ## Credentials and external systems
 
@@ -87,10 +95,9 @@ Earlier findings already addressed in `71a59a6` but must not regress: DB-backed 
 
 ## Next exact action
 
-Task 7 is blocked pending controlled repair of duplicate-publication idempotency
-and the live Supabase probe. The five allowed TDD review rounds are exhausted;
-do not advance to Task 8 or claim production readiness until both defects are
-fixed and independently reviewed.
+Obtain a fresh independent scoped review of the two Task 7 remediation fixes.
+Do not advance to Task 8 or claim production readiness until that review
+approves the bounded remediation.
 
 ## Do not do
 

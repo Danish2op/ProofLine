@@ -117,6 +117,114 @@ describe('Buzz relay adapter', () => {
     ).resolves.toEqual([undefined, undefined, undefined]);
   });
 
+  it('reuses one in-flight promise for equivalent duplicate event IDs through acknowledgement', async () => {
+    const socket = new FakeRelaySocket();
+    const signer = deterministicSigner();
+    const transport = new Nip01RelayTransport({
+      relayUrl: 'wss://relay.example.test',
+      signer,
+      socketFactory: () => socket,
+      publicationTimeoutMs: 100,
+      authProbeTimeoutMs: 1,
+    });
+    const event = await signer.sign({
+      created_at: 1_700_000_000,
+      kind: 9,
+      tags: [['h', 'proofline-demo-channel']],
+      content: 'duplicate proposal',
+    });
+
+    const firstPublication = transport.publish(event);
+    const duplicatePublication = transport.publish({
+      ...event,
+      tags: event.tags.map((tag) => [...tag]),
+    });
+    socket.open();
+    await waitFor(() => socket.frames.some((frame) => frame[0] === 'EVENT'));
+    socket.receive(['OK', event.id, true, 'stored']);
+
+    const outcome = await settleWithin(
+      [firstPublication, duplicatePublication],
+      50,
+    );
+    expect(outcome).toEqual([
+      { status: 'fulfilled', value: undefined },
+      { status: 'fulfilled', value: undefined },
+    ]);
+    expect(firstPublication).toBe(duplicatePublication);
+    expect(socket.frames.filter((frame) => frame[0] === 'EVENT')).toHaveLength(
+      1,
+    );
+  });
+
+  it('settles every equivalent duplicate caller when acknowledgement times out', async () => {
+    const socket = new FakeRelaySocket();
+    const signer = deterministicSigner();
+    const transport = new Nip01RelayTransport({
+      relayUrl: 'wss://relay.example.test',
+      signer,
+      socketFactory: () => socket,
+      publicationTimeoutMs: 10,
+      authProbeTimeoutMs: 1,
+    });
+    const event = await signer.sign({
+      created_at: 1_700_000_000,
+      kind: 9,
+      tags: [['h', 'proofline-demo-channel']],
+      content: 'duplicate timeout proposal',
+    });
+
+    const firstPublication = transport.publish(event);
+    const duplicatePublication = transport.publish({ ...event });
+    socket.open();
+
+    const outcome = await settleWithin(
+      [firstPublication, duplicatePublication],
+      50,
+    );
+    expect(outcome).toHaveLength(2);
+    for (const result of outcome) {
+      expect(result).toMatchObject({
+        status: 'rejected',
+        reason: { code: 'network_timeout' },
+      });
+    }
+    expect(firstPublication).toBe(duplicatePublication);
+  });
+
+  it('rejects a conflicting payload for an in-flight event ID without disturbing the original', async () => {
+    const socket = new FakeRelaySocket();
+    const signer = deterministicSigner();
+    const transport = new Nip01RelayTransport({
+      relayUrl: 'wss://relay.example.test',
+      signer,
+      socketFactory: () => socket,
+      publicationTimeoutMs: 100,
+      authProbeTimeoutMs: 1,
+    });
+    const event = await signer.sign({
+      created_at: 1_700_000_000,
+      kind: 9,
+      tags: [['h', 'proofline-demo-channel']],
+      content: 'original proposal',
+    });
+
+    const originalPublication = transport.publish(event);
+    const conflictingPublication = transport.publish({
+      ...event,
+      content: 'conflicting proposal',
+    });
+    socket.open();
+
+    await expect(conflictingPublication).rejects.toMatchObject({
+      code: 'relay_rejected',
+      message: 'Relay event ID is already pending with a conflicting payload.',
+    });
+    await waitFor(() => socket.frames.some((frame) => frame[0] === 'EVENT'));
+    socket.receive(['OK', event.id, true, 'stored']);
+    await expect(originalPublication).resolves.toBeUndefined();
+  });
+
   it.each([
     { authOutcome: 'resolve' as const, description: 'resolves' },
     { authOutcome: 'reject' as const, description: 'rejects' },
@@ -457,6 +565,21 @@ async function waitFor(predicate: () => boolean): Promise<void> {
     await new Promise<void>((resolve) => setTimeout(resolve, 1));
   }
   throw new Error('Timed out waiting for relay state.');
+}
+
+async function settleWithin<T>(
+  promises: Promise<T>[],
+  timeoutMs: number,
+): Promise<PromiseSettledResult<T>[]> {
+  return Promise.race([
+    Promise.allSettled(promises),
+    new Promise<never>((_, reject) => {
+      setTimeout(
+        () => reject(new Error('Publication callers did not all settle.')),
+        timeoutMs,
+      );
+    }),
+  ]);
 }
 
 function deterministicSigner() {

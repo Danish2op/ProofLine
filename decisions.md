@@ -123,3 +123,42 @@ explicitly credential-gated live relay test skipped.
 Decision: stop the Task 7 review loop after the fifth fix round; do not advance to runtime work while duplicate publication promises can hang or the live database probe contradicts migration 0011.
 
 Reason: the remaining defects affect liveness and deployment evidence. Continuing without a new controlled repair/review would violate the TDD review protocol and create false production confidence.
+
+## D-018 — Post-review remediation
+
+Decision: resume Task 7 in a separately named remediation phase after the user requested continuation; preserve the prior five-round evidence and require a fresh RED/GREEN cycle plus independent review for only the two remaining defects.
+
+Reason: the user wants the project completed, but the prior review ceiling and evidence must remain auditable rather than being overwritten.
+
+## D-019 — In-flight relay publication idempotency
+
+Decision: register a publication before connection work begins. While an event
+ID is pending, an equivalent signed event (all signed envelope fields and
+ordered tags equal) returns the exact same promise and emits one relay EVENT; a
+same-ID event with any conflicting field rejects immediately as non-retryable
+`relay_rejected` without disturbing the original publication. ACK, timeout,
+connection failure, authentication failure, and close settle the shared promise.
+After settlement the entry is removed, so this is in-flight idempotency rather
+than a permanent publication cache.
+
+Reason: one event ID must own one resolver/timer lifecycle; overwriting a map
+entry made earlier callers unreachable and able to hang indefinitely.
+
+Validation: on 2026-08-11, the bounded relay/probe command reported 2 passing
+files and 16 passed tests with 1 explicitly credential-gated relay test skipped.
+It covers equivalent-ID acknowledgement and timeout settlement plus immediate
+conflict rejection without disturbing the original publication.
+
+## D-020 — Migration-aware live Buzz probe
+
+Decision: the migration 0011 probe retains each inserted passport hash, embeds
+the second hash in the second proposal envelope, and asserts the result of the
+second `record_verified_buzz_proposal` call before applying `request_changes`.
+
+Reason: a live probe must fail at the first incorrect RPC outcome instead of
+continuing with missing proposal provenance and asserting a stale transition.
+
+Validation: the same bounded command exercised the executable probe helper's
+hash-bound envelope and wrong-result assertion; `pnpm typecheck` exited 0.
+`pnpm db:verify` exited 0 with the expected missing-`SUPABASE_DB_URL` skip, so
+no live database claim is made.

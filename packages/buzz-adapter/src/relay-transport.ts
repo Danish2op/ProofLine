@@ -30,6 +30,15 @@ type RelayAuthenticationState =
   | 'authenticated'
   | 'failed';
 
+interface PendingPublication {
+  event: BuzzSignedEvent;
+  promise: Promise<void>;
+  resolve: () => void;
+  reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout> | null;
+  sent: boolean;
+}
+
 export class Nip01RelayTransport implements BuzzTransport {
   private readonly relayUrl: string;
   private readonly publicationTimeoutMs: number;
@@ -45,16 +54,7 @@ export class Nip01RelayTransport implements BuzzTransport {
   private authProbeTimer: ReturnType<typeof setTimeout> | null = null;
   private authEventId: string | null = null;
   private readonly authQueue = new Set<string>();
-  private readonly pending = new Map<
-    string,
-    {
-      event: BuzzSignedEvent;
-      resolve: () => void;
-      reject: (error: Error) => void;
-      timer: ReturnType<typeof setTimeout>;
-      sent: boolean;
-    }
-  >();
+  private readonly pending = new Map<string, PendingPublication>();
 
   constructor(
     private readonly options: {
@@ -70,41 +70,45 @@ export class Nip01RelayTransport implements BuzzTransport {
     this.authProbeTimeoutMs = options.authProbeTimeoutMs ?? 25;
   }
 
-  async publish(event: BuzzSignedEvent): Promise<void> {
-    const socket = await this.connect();
-    if (this.authState === 'failed') {
-      throw (
-        this.authFailure ??
+  publish(event: BuzzSignedEvent): Promise<void> {
+    const existing = this.pending.get(event.id);
+    if (existing) {
+      if (eventsAreEquivalent(existing.event, event)) return existing.promise;
+      return Promise.reject(
         new RelayTransportError(
           'relay_rejected',
-          'Relay authentication failed.',
-        )
+          'Relay event ID is already pending with a conflicting payload.',
+        ),
       );
     }
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        const pending = this.pending.get(event.id);
-        if (!pending) return;
-        this.pending.delete(event.id);
-        this.authQueue.delete(event.id);
-        pending.reject(
-          new RelayTransportError(
-            'network_timeout',
-            'Relay publication acknowledgement timed out.',
-          ),
-        );
-      }, this.publicationTimeoutMs);
-      this.pending.set(event.id, {
-        event,
-        resolve,
-        reject,
-        timer,
-        sent: false,
-      });
-      const pending = this.pending.get(event.id);
-      if (!pending) return;
-      this.queueForAuthentication(socket, event.id, pending);
+
+    let resolvePublication!: () => void;
+    let rejectPublication!: (error: Error) => void;
+    const promise = new Promise<void>((resolve, reject) => {
+      resolvePublication = resolve;
+      rejectPublication = reject;
     });
+    const pending: PendingPublication = {
+      event,
+      promise,
+      resolve: resolvePublication,
+      reject: rejectPublication,
+      timer: null,
+      sent: false,
+    };
+    pending.timer = setTimeout(() => {
+      this.rejectPending(
+        event.id,
+        pending,
+        new RelayTransportError(
+          'network_timeout',
+          'Relay publication acknowledgement timed out.',
+        ),
+      );
+    }, this.publicationTimeoutMs);
+    this.pending.set(event.id, pending);
+    void this.connectAndQueue(pending);
+    return promise;
   }
 
   close(): void {
@@ -198,6 +202,37 @@ export class Nip01RelayTransport implements BuzzTransport {
     return this.connecting;
   }
 
+  private async connectAndQueue(pending: PendingPublication): Promise<void> {
+    try {
+      const socket = await this.connect();
+      if (this.pending.get(pending.event.id) !== pending) return;
+      if (this.authState === 'failed') {
+        this.rejectPending(
+          pending.event.id,
+          pending,
+          this.authFailure ??
+            new RelayTransportError(
+              'relay_rejected',
+              'Relay authentication failed.',
+            ),
+        );
+        return;
+      }
+      this.queueForAuthentication(socket, pending.event.id, pending);
+    } catch (error: unknown) {
+      this.rejectPending(
+        pending.event.id,
+        pending,
+        error instanceof Error
+          ? error
+          : new RelayTransportError(
+              'relay_unavailable',
+              'Relay connection failed.',
+            ),
+      );
+    }
+  }
+
   private async handleFrame(
     data: string,
     socket: RelaySocket,
@@ -255,7 +290,7 @@ export class Nip01RelayTransport implements BuzzTransport {
       if (frame[2]) {
         this.pending.delete(frame[1]);
         this.authQueue.delete(frame[1]);
-        clearTimeout(pending.timer);
+        if (pending.timer) clearTimeout(pending.timer);
         pending.resolve();
       } else if (isAuthRequired(String(frame[3] ?? ''))) {
         pending.sent = false;
@@ -264,7 +299,7 @@ export class Nip01RelayTransport implements BuzzTransport {
       } else {
         this.pending.delete(frame[1]);
         this.authQueue.delete(frame[1]);
-        clearTimeout(pending.timer);
+        if (pending.timer) clearTimeout(pending.timer);
         pending.reject(
           new RelayTransportError(
             'relay_rejected',
@@ -453,11 +488,23 @@ export class Nip01RelayTransport implements BuzzTransport {
 
   private rejectAll(error: Error): void {
     for (const pending of this.pending.values()) {
-      clearTimeout(pending.timer);
+      if (pending.timer) clearTimeout(pending.timer);
       pending.reject(error);
     }
     this.pending.clear();
     this.authQueue.clear();
+  }
+
+  private rejectPending(
+    eventId: string,
+    expected: PendingPublication,
+    error: Error,
+  ): void {
+    if (this.pending.get(eventId) !== expected) return;
+    this.pending.delete(eventId);
+    this.authQueue.delete(eventId);
+    if (expected.timer) clearTimeout(expected.timer);
+    expected.reject(error);
   }
 
   private sendEvent(
@@ -475,4 +522,30 @@ export class Nip01RelayTransport implements BuzzTransport {
 
 function isAuthRequired(reason: string): boolean {
   return /auth[-_ ]?required|authentication required/i.test(reason);
+}
+
+function eventsAreEquivalent(
+  first: BuzzSignedEvent,
+  second: BuzzSignedEvent,
+): boolean {
+  return (
+    JSON.stringify([
+      first.id,
+      first.pubkey,
+      first.created_at,
+      first.kind,
+      first.tags,
+      first.content,
+      first.sig,
+    ]) ===
+    JSON.stringify([
+      second.id,
+      second.pubkey,
+      second.created_at,
+      second.kind,
+      second.tags,
+      second.content,
+      second.sig,
+    ])
+  );
 }

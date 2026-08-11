@@ -473,3 +473,71 @@ database success is claimed.
 
 Fix commit: `fix: invalidate stale buzz relay authentication` (this report is
 included in the same scoped commit; use repository history for its object ID).
+
+## Post-review Remediation (2026-08-11)
+
+### Status
+
+`IMPLEMENTED_PENDING_INDEPENDENT_REVIEW`. This remediation is limited to the
+two final-review defects. Equivalent in-flight duplicate events return the same
+promise and share one EVENT/ACK/timeout lifecycle; a conflicting payload with
+the same ID rejects immediately with `relay_rejected` without disturbing the
+original. The database probe retains the second passport hash, includes it in
+the second proposal, and asserts that proposal RPC returns `stored` before
+probing `request_changes`.
+
+### RED / GREEN evidence
+
+```text
+pnpm exec vitest run tests/integration/buzz-adapter/relay.test.ts tests/unit/scripts/verify-supabase-db-buzz-probe.test.ts --reporter=verbose --testTimeout=1000 --hookTimeout=1000
+Test Files  2 failed (2)
+Tests  3 failed | 11 passed | 1 skipped (15)
+
+ACK duplicate RED: Publication callers did not all settle.
+timeout duplicate RED: Publication callers did not all settle.
+conflict RED: expected relay_rejected, received network_timeout.
+probe RED: executable probe helper was missing.
+```
+
+After implementation, the same focused command passed:
+
+```text
+Test Files  2 passed (2)
+Tests  16 passed | 1 skipped (17)
+```
+
+The final focused relay/probe and typecheck outputs are recorded below from the
+fresh pre-commit run. Per the user's stop instruction, no additional full suite
+was run during finalization.
+
+### Fresh bounded verification (2026-08-11)
+
+```text
+pnpm exec vitest run tests/integration/buzz-adapter/relay.test.ts tests/unit/scripts/verify-supabase-db-buzz-probe.test.ts --reporter=verbose --testTimeout=1000 --hookTimeout=1000
+Test Files  2 passed (2)
+Tests  16 passed | 1 skipped (17)
+
+pnpm typecheck
+$ tsc --noEmit
+# exit 0
+
+pnpm db:verify
+SKIPPED: set SUPABASE_DB_URL to run live Supabase database probes.
+# exit 0; Node printed its experimental type-stripping warning
+```
+
+The skipped relay test requires an explicitly configured signing identity and
+membership. The database command did not connect or change any database because
+`SUPABASE_DB_URL` was absent. No unbounded full suite was run.
+
+### Changed files and live-test status
+
+- `packages/buzz-adapter/src/relay-transport.ts`
+- `scripts/verify-supabase-db.ts`
+- `tests/integration/buzz-adapter/relay.test.ts`
+- `tests/unit/scripts/verify-supabase-db-buzz-probe.test.ts`
+- `context.md`, `decisions.md`, and the Task 7 execution ledger/report
+
+No Task 8 file or prior migration was changed. No live credentials were used,
+and no live database, authentication, migration, or publication success is
+claimed.
