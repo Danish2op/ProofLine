@@ -27,6 +27,7 @@ describe('Buzz relay adapter', () => {
     const published = transport.publish(event);
     socket.open();
     await Promise.resolve();
+    expect(socket.frames).not.toContainEqual(['EVENT', event]);
     socket.receive(['AUTH', 'relay-challenge']);
     await Promise.resolve();
 
@@ -146,6 +147,26 @@ describe('Buzz relay adapter', () => {
     socket.open();
     await expect(publishing).rejects.toMatchObject({ code: 'network_timeout' });
   });
+
+  it('bounds a publication when the relay socket never opens', async () => {
+    const socket = new FakeRelaySocket();
+    const transport = new Nip01RelayTransport({
+      relayUrl: 'wss://relay.example.test',
+      signer: deterministicSigner(),
+      socketFactory: () => socket,
+      publicationTimeoutMs: 10,
+    });
+    const event = await deterministicSigner().sign({
+      created_at: 1_700_000_000,
+      kind: 9,
+      tags: [['h', 'proofline-demo-channel']],
+      content: 'proposal',
+    });
+
+    await expect(transport.publish(event)).rejects.toMatchObject({
+      code: 'network_timeout',
+    });
+  }, 1000);
 
   it('records a published proposal before returning its relay reference', async () => {
     const calls: Array<Record<string, unknown>> = [];
@@ -293,9 +314,9 @@ class FakeRelaySocket {
 }
 
 async function waitFor(predicate: () => boolean): Promise<void> {
-  for (let attempt = 0; attempt < 10; attempt += 1) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
     if (predicate()) return;
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 1));
   }
   throw new Error('Timed out waiting for relay state.');
 }

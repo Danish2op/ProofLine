@@ -25,6 +25,7 @@ export class RelayTransportError extends Error {
 export class Nip01RelayTransport implements BuzzTransport {
   private readonly relayUrl: string;
   private readonly publicationTimeoutMs: number;
+  private readonly authProbeTimeoutMs: number;
   private socket: RelaySocket | null = null;
   private connecting: Promise<RelaySocket> | null = null;
   private authenticated = false;
@@ -36,7 +37,9 @@ export class Nip01RelayTransport implements BuzzTransport {
       resolve: () => void;
       reject: (error: Error) => void;
       timer: ReturnType<typeof setTimeout>;
+      probeTimer: ReturnType<typeof setTimeout> | null;
       awaitingAuth: boolean;
+      sent: boolean;
     }
   >();
 
@@ -46,10 +49,12 @@ export class Nip01RelayTransport implements BuzzTransport {
       signer: BuzzSigner;
       socketFactory?: (relayUrl: string) => RelaySocket;
       publicationTimeoutMs?: number;
+      authProbeTimeoutMs?: number;
     },
   ) {
     this.relayUrl = new URL(options.relayUrl).toString();
     this.publicationTimeoutMs = options.publicationTimeoutMs ?? 10_000;
+    this.authProbeTimeoutMs = options.authProbeTimeoutMs ?? 25;
   }
 
   async publish(event: BuzzSignedEvent): Promise<void> {
@@ -71,9 +76,21 @@ export class Nip01RelayTransport implements BuzzTransport {
         resolve,
         reject,
         timer,
+        probeTimer: null,
         awaitingAuth: false,
+        sent: false,
       });
-      socket.send(JSON.stringify(['EVENT', event]));
+      const pending = this.pending.get(event.id);
+      if (!pending) return;
+      if (this.authenticated) {
+        this.sendEvent(socket, pending);
+      } else {
+        pending.probeTimer = setTimeout(() => {
+          if (this.pending.get(event.id) !== pending || this.authEventId)
+            return;
+          this.sendEvent(socket, pending);
+        }, this.authProbeTimeoutMs);
+      }
     });
   }
 
@@ -91,7 +108,25 @@ export class Nip01RelayTransport implements BuzzTransport {
 
     this.connecting = new Promise<RelaySocket>((resolve, reject) => {
       const socket = this.createSocket();
+      let opened = false;
+      let settled = false;
+      const connectionTimer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        this.connecting = null;
+        socket.close();
+        reject(
+          new RelayTransportError(
+            'network_timeout',
+            'Relay connection timed out.',
+          ),
+        );
+      }, this.publicationTimeoutMs);
       socket.onopen = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(connectionTimer);
+        opened = true;
         this.socket = socket;
         this.authenticated = false;
         resolve(socket);
@@ -100,6 +135,10 @@ export class Nip01RelayTransport implements BuzzTransport {
         void this.handleFrame(event.data);
       };
       socket.onerror = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(connectionTimer);
+        this.connecting = null;
         reject(
           new RelayTransportError(
             'relay_unavailable',
@@ -108,6 +147,17 @@ export class Nip01RelayTransport implements BuzzTransport {
         );
       };
       socket.onclose = () => {
+        if (!opened && !settled) {
+          settled = true;
+          clearTimeout(connectionTimer);
+          this.connecting = null;
+          reject(
+            new RelayTransportError(
+              'relay_unavailable',
+              'Relay connection closed before opening.',
+            ),
+          );
+        }
         const error = new RelayTransportError(
           'relay_unavailable',
           'Relay connection closed.',
@@ -145,6 +195,13 @@ export class Nip01RelayTransport implements BuzzTransport {
       return;
     }
     if (frame[0] === 'AUTH' && typeof frame[1] === 'string') {
+      for (const pending of this.pending.values()) {
+        if (!pending.sent) {
+          pending.awaitingAuth = true;
+          if (pending.probeTimer) clearTimeout(pending.probeTimer);
+          pending.probeTimer = null;
+        }
+      }
       await this.answerChallenge(frame[1]);
       return;
     }
@@ -168,7 +225,7 @@ export class Nip01RelayTransport implements BuzzTransport {
         for (const pending of this.pending.values()) {
           if (!pending.awaitingAuth) continue;
           pending.awaitingAuth = false;
-          this.socket?.send(JSON.stringify(['EVENT', pending.event]));
+          if (this.socket) this.sendEvent(this.socket, pending);
         }
         return;
       }
@@ -180,6 +237,7 @@ export class Nip01RelayTransport implements BuzzTransport {
         clearTimeout(pending.timer);
         pending.resolve();
       } else if (isAuthRequired(String(frame[3] ?? ''))) {
+        pending.sent = false;
         pending.awaitingAuth = true;
       } else {
         this.pending.delete(frame[1]);
@@ -217,9 +275,24 @@ export class Nip01RelayTransport implements BuzzTransport {
   private rejectAll(error: Error): void {
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);
+      if (pending.probeTimer) clearTimeout(pending.probeTimer);
       pending.reject(error);
     }
     this.pending.clear();
+  }
+
+  private sendEvent(
+    socket: RelaySocket,
+    pending: {
+      event: BuzzSignedEvent;
+      probeTimer: ReturnType<typeof setTimeout> | null;
+      sent: boolean;
+    },
+  ): void {
+    if (pending.probeTimer) clearTimeout(pending.probeTimer);
+    pending.probeTimer = null;
+    pending.sent = true;
+    socket.send(JSON.stringify(['EVENT', pending.event]));
   }
 }
 

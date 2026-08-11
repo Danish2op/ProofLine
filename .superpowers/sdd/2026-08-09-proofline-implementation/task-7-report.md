@@ -263,4 +263,44 @@ check had already passed earlier in this round with `11 passed`.
 - `tests/integration/buzz-adapter/relay.test.ts`
 - `tests/integration/database/migration-test-helpers.ts`
 - `tests/unit/buzz-adapter/provenance.test.ts`
-- `context.md` and `decisions.md` (round state and decisions D-010/D-011)
+- `context.md` and `decisions.md` (round state and decisions D-010 through D-014)
+
+## Fix Round 3 (2026-08-11)
+
+### RED / GREEN evidence
+
+| Defect | RED evidence | GREEN evidence |
+| --- | --- | --- |
+| NIP-42 ordering | `pnpm vitest run tests/integration/buzz-adapter/relay.test.ts --testTimeout=1000 --hookTimeout=1000` failed the new assertion because EVENT was already sent before AUTH. | Same focused relay test after the state-machine change: `8 passed, 1 skipped`; new publication waits through the auth probe, gates EVENT after AUTH, and retains the required-auth rejection/retry path. |
+| Connection timeout | The same RED command timed out the never-open socket test at `1000ms`. | The same relay GREEN run passes the never-open and no-ack timeout tests with `network_timeout`. |
+| Signed passport binding | `pnpm vitest run tests/unit/buzz-adapter/provenance.test.ts --testTimeout=2000 --hookTimeout=2000` failed: promise resolved `"stored"` instead of rejecting for a mismatched stored hash. | Same command: `5 passed`; writer-side hash reader rejects before RPC, and migration 0011 independently rejects a caller passport ID that does not match the signed `passportHash`. |
+| Forward migration | `pnpm vitest run tests/integration/database/constraints.test.ts` failed because migration 0011 was absent. | Same command: `11 passed`; migration 0011 is forward-only and added to the executable probe migration list. |
+
+Final focused verification after formatting:
+
+```text
+pnpm vitest run tests/unit/buzz-adapter tests/integration/buzz-adapter tests/integration/database/constraints.test.ts --testTimeout=5000 --hookTimeout=5000
+Test Files  6 passed (6)
+Tests  36 passed | 1 skipped (37)
+
+pnpm typecheck
+$ tsc --noEmit
+
+pnpm --filter @proofline/buzz-adapter run build
+$ pnpm --filter @proofline/domain run build && tsc -p tsconfig.build.json
+$ tsc -p tsconfig.build.json
+```
+
+The live relay and Supabase probes remain explicitly credential-gated and were
+not claimed as successful. No old migration was edited; migration 0011 is the
+only database migration added in this round.
+
+### Fix Round 3 changed files
+
+- `packages/buzz-adapter/src/{provenance,relay-transport}.ts`
+- `supabase/migrations/0011_task_7_signed_passport_binding.sql`
+- `scripts/verify-supabase-db.ts`
+- `tests/integration/buzz-adapter/relay.test.ts`
+- `tests/integration/database/migration-test-helpers.ts`
+- `tests/unit/buzz-adapter/provenance.test.ts`
+- `context.md` and `decisions.md`

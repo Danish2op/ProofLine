@@ -55,6 +55,33 @@ describe('Buzz event provenance', () => {
     });
   });
 
+  it('rejects a signed proposal whose passport hash differs from the stored passport', async () => {
+    const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+    const writer = new DatabaseProvenanceWriter(
+      {
+        async call(name, args) {
+          calls.push({ name, args });
+          return 'stored';
+        },
+      },
+      {
+        async readPassportHash() {
+          return 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+        },
+      },
+    );
+
+    await expect(
+      writer.recordProposal({
+        event: signedProposalEvent(),
+        workspaceId: 'f2e0b809-2d1d-43cd-85c5-99522d4f0611',
+        actionPassportId: '5fa2a464-8c93-4452-aa65-83e92a7a9e1f',
+        relayUrl: 'wss://relay.example.test/',
+      }),
+    ).rejects.toThrow('does not match the stored passport hash');
+    expect(calls).toHaveLength(0);
+  });
+
   it('retries only explicitly transient relay failures', () => {
     expect(isRetryableBuzzFailure('network_timeout')).toBe(true);
     expect(isRetryableBuzzFailure('relay_unavailable')).toBe(true);
@@ -165,7 +192,7 @@ function signedProposalEvent(): VerifiedBuzzEvent {
   const kind = 9;
   const tags = [['h', 'proofline-demo-channel']];
   const content =
-    '{"proofline":{"schema":"proofline.passport.v1","type":"proposal"}}';
+    '{"proofline":{"schema":"proofline.passport.v1","type":"proposal","passportHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}';
   const id = createHash('sha256')
     .update(JSON.stringify([0, pubkey, createdAt, kind, tags, content]))
     .digest('hex');

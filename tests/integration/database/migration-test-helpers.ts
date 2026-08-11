@@ -12,6 +12,7 @@ export const migrationNames = [
   '0008_task_7_buzz_provenance.sql',
   '0009_task_7_verified_buzz_approval.sql',
   '0010_task_7_proposal_binding_and_request_changes.sql',
+  '0011_task_7_signed_passport_binding.sql',
 ] as const;
 
 export const tenantTables = [

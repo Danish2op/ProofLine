@@ -72,3 +72,25 @@ maps from `PENDING_APPROVAL` to `BLOCKED` in the guarded SQL transaction.
 
 Reason: parser and persistence contracts must agree and must not silently drop a
 reviewer decision.
+
+## D-012 — Auth-gated Buzz publication
+
+Decision: treat a relay as requiring authentication until it explicitly proves otherwise; queue the event while awaiting challenge/auth, retry after successful AUTH, and bound both connection and publication waits.
+
+Reason: publishing before NIP-42 completes is not reliable for authenticated relays, and an unbounded socket is a production hang.
+
+## D-013 — Signed passport hash is authoritative
+
+Decision: proposal persistence must derive or verify the action passport relationship from the signed proposal `passportHash` and the stored passport hash; a caller-provided passport ID cannot override the signed binding.
+
+Reason: prevents a valid signed proposal for passport A from being persisted as passport B.
+
+## D-014 — Auth probing has a bounded unauthenticated fallback
+
+Decision: a new publication waits briefly for a relay AUTH challenge; a
+challenge gates the EVENT behind successful AUTH, while a relay that sends no
+challenge receives the EVENT after the bounded probe window. Connection and
+publication waits share explicit bounded failure behavior.
+
+Reason: this supports relays that accept unauthenticated events without
+publishing before authentication on relays that require NIP-42.

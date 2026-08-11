@@ -16,8 +16,18 @@ export interface BuzzProvenanceRpc {
   call(name: string, args: Record<string, unknown>): Promise<string>;
 }
 
+export interface BuzzPassportHashReader {
+  readPassportHash(
+    workspaceId: string,
+    actionPassportId: string,
+  ): Promise<string | null>;
+}
+
 export class DatabaseProvenanceWriter {
-  constructor(private readonly rpc: BuzzProvenanceRpc) {}
+  constructor(
+    private readonly rpc: BuzzProvenanceRpc,
+    private readonly passportHashReader?: BuzzPassportHashReader,
+  ) {}
 
   async recordProposal(input: {
     event: VerifiedBuzzEvent;
@@ -25,11 +35,24 @@ export class DatabaseProvenanceWriter {
     actionPassportId: string;
     relayUrl: string;
   }): Promise<string> {
+    const rawEvent = verifiedRawEvent(input.event);
+    if (this.passportHashReader) {
+      const signedPassportHash = passportHashFromEvent(rawEvent);
+      const storedPassportHash = await this.passportHashReader.readPassportHash(
+        input.workspaceId,
+        input.actionPassportId,
+      );
+      if (!signedPassportHash || signedPassportHash !== storedPassportHash) {
+        throw new Error(
+          'Signed proposal does not match the stored passport hash.',
+        );
+      }
+    }
     return this.rpc.call('record_verified_buzz_proposal', {
       target_workspace_id: input.workspaceId,
       target_action_passport_id: input.actionPassportId,
       source_relay_url: input.relayUrl,
-      source_raw_event_json: verifiedRawEvent(input.event),
+      source_raw_event_json: rawEvent,
     });
   }
 
@@ -78,4 +101,20 @@ function verifiedRawEvent(event: VerifiedBuzzEvent) {
     );
   }
   return rawEvent;
+}
+
+function passportHashFromEvent(event: { content: string }): string | null {
+  try {
+    const parsed: unknown = JSON.parse(event.content);
+    if (typeof parsed !== 'object' || parsed === null) return null;
+    const proofline = (parsed as Record<string, unknown>).proofline;
+    if (typeof proofline !== 'object' || proofline === null) return null;
+    const passportHash = (proofline as Record<string, unknown>).passportHash;
+    return typeof passportHash === 'string' &&
+      /^[0-9a-f]{64}$/.test(passportHash)
+      ? passportHash
+      : null;
+  } catch {
+    return null;
+  }
 }

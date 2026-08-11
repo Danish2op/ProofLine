@@ -34,14 +34,17 @@ Completed and reviewed:
 5. Supabase schema/RLS/audit; migrations through `0007` applied to linked project.
 6. Auth/authz and middleware; final scoped review approved.
 
-Task 7 fix round 2 implementation is complete pending the next independent review. Base implementation commits were `699b295`, `b86879c`; fix round 1 commit was `71a59a6`.
+Task 7 fix round 3 implementation is complete pending the next independent review. Base implementation commits were `699b295`, `b86879c`; fix commits are `71a59a6` and `fab1b30`.
 
 Task 7 review findings that must be fixed before Task 8:
 
 1. No complete proposal provenance writer path: publishing returns a relay ref but does not persist the proposal row, while approval RPC requires it.
 2. Approval RPC can transition a caller-supplied passport different from the passport bound to proposal provenance. (Addressed in fix round 2.)
 3. `request_changes` is accepted by parser but not applied by SQL transition contract. (Addressed in fix round 2.)
-4. NIP-42 transport sends `EVENT` before challenge/auth and does not retry after auth; publication has no timeout. Tests do not cover required-auth rejection/retry. (Addressed in fix round 2 with bounded retry behavior.)
+4. NIP-42 transport sent `EVENT` before challenge/auth and did not retry after auth; publication had no timeout. (Addressed in fix round 3 with an auth-probe state and safe unauthenticated fallback.)
+
+5. Connection establishment can hang forever because the timeout starts after `connect()`. (Addressed in fix round 3.)
+6. Proposal recording trusts a caller-provided passport ID instead of verifying it against signed `passportHash` and the stored passport hash. (Addressed in fix round 3 with migration 0011 and an executable mismatch probe.)
 
 Earlier findings already addressed in `71a59a6` but must not regress: DB-backed dedupe/atomic guarded transition, reviewer identity and self-approval checks, raw-event hash/signature binding, clean package-boundary build.
 
@@ -60,13 +63,14 @@ Earlier findings already addressed in `71a59a6` but must not regress: DB-backed 
 - `packages/domain`: canonical entities, action passports, lifecycle/policy contracts.
 - `packages/buzz-adapter`: Task 7 protocol/client/parser/provenance implementation.
 - `supabase/migrations/0001`–`0010`: forward-only migrations; do not edit old migrations, add a new migration.
+- Fix round 3 adds forward-only migration `0011_task_7_signed_passport_binding.sql`.
 - `.superpowers/sdd/2026-08-09-proofline-implementation/progress.md`: execution ledger.
 - `.superpowers/sdd/2026-08-09-proofline-implementation/task-7-report.md`: Task 7 evidence report.
 - `docs/superpowers/plans/2026-08-09-proofline-implementation.md`: master plan.
 
 ## Next exact action
 
-Obtain a fresh scoped review for Task 7 fix round 2. Do not begin Task 8 until that review approves the proposal writer path, stored-passport binding, request_changes transition, and NIP-42 retry/timeout behavior.
+Obtain a fresh scoped review for Task 7 fix round 3. Do not begin Task 8 until approved.
 
 ## Do not do
 

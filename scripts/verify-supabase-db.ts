@@ -16,6 +16,7 @@ const migrationNames = [
   '0008_task_7_buzz_provenance.sql',
   '0009_task_7_verified_buzz_approval.sql',
   '0010_task_7_proposal_binding_and_request_changes.sql',
+  '0011_task_7_signed_passport_binding.sql',
 ] as const;
 
 const dbUrl = process.env.SUPABASE_DB_URL;
@@ -165,18 +166,26 @@ async function verifyVerifiedBuzzApprovalRpc(
   context: ProbeContext,
   workspaceId: string,
 ): Promise<void> {
-  const actionPassport = await client.query<{ id: string }>(
-    `${insertPassportSql()} returning id`,
+  const actionPassport = await client.query<{
+    id: string;
+    passport_hash: string;
+  }>(
+    `${insertPassportSql()} returning id, passport_hash`,
     passportValues(context, workspaceId, 'DRAFT', null, true),
   );
   const actionPassportId = actionPassport.rows[0]?.id;
+  const actionPassportHash = actionPassport.rows[0]?.passport_hash;
   assert.ok(actionPassportId, 'Buzz RPC probe passport was not created');
+  assert.ok(actionPassportHash, 'Buzz RPC probe passport hash was not created');
   await client.query(
     'update public.action_passports set status = $1 where id = $2',
     ['PENDING_APPROVAL', actionPassportId],
   );
-  const secondPassport = await client.query<{ id: string }>(
-    `${insertPassportSql()} returning id`,
+  const secondPassport = await client.query<{
+    id: string;
+    passport_hash: string;
+  }>(
+    `${insertPassportSql()} returning id, passport_hash`,
     passportValues(context, workspaceId, 'DRAFT', null, true),
   );
   const secondActionPassportId = secondPassport.rows[0]?.id;
@@ -196,8 +205,13 @@ async function verifyVerifiedBuzzApprovalRpc(
     '1',
     [['h', 'proofline-rpc-probe']],
     9,
-    '{"proofline":{"type":"proposal"}}',
+    `{"proofline":{"type":"proposal","passportHash":"${actionPassportHash}"}}`,
   );
+  const mismatch = await client.query<{ result: string }>(
+    "select public.record_verified_buzz_proposal($1, $2, 'wss://relay.example.test/', $3::jsonb) as result",
+    [workspaceId, secondActionPassportId, JSON.stringify(proposal)],
+  );
+  assert.equal(mismatch.rows[0]?.result, 'rejected');
   const proposalStored = await client.query<{ result: string }>(
     "select public.record_verified_buzz_proposal($1, $2, 'wss://relay.example.test/', $3::jsonb) as result",
     [workspaceId, actionPassportId, JSON.stringify(proposal)],
