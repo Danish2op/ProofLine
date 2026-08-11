@@ -237,6 +237,8 @@ describe('Proofline database constraints', () => {
       'revoke all on function public.apply_verified_buzz_approval',
     );
     expect(lifecycle).toContain('approval_observation_malformed');
+    expect(lifecycle).toContain('with ordinality');
+    expect(lifecycle).toContain('order by ordinal');
   });
 
   it('keeps seed data visibly synthetic and free of credentials', () => {

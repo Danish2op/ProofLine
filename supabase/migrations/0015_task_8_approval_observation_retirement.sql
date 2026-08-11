@@ -79,8 +79,9 @@ begin
   source_event_id := source_raw_event_json->>'id';
   source_actor_pubkey := source_raw_event_json->>'pubkey';
   select tag->>1 into source_proposal_event_id
-  from jsonb_array_elements(source_raw_event_json->'tags') as tag
+  from jsonb_array_elements(source_raw_event_json->'tags') with ordinality as item(tag, ordinal)
   where tag->>0 = 'e'
+  order by ordinal desc
   limit 1;
   select tag->>1 into source_channel_id
   from jsonb_array_elements(source_raw_event_json->'tags') as tag

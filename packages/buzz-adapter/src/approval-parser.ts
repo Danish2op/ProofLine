@@ -108,7 +108,8 @@ function referencesProposal(
   event: VerifiedBuzzEvent,
   proposalEventId: string,
 ): boolean {
-  return event.tags.some((tag) => tag[0] === 'e' && tag[1] === proposalEventId);
+  const eTags = event.tags.filter((tag) => tag[0] === 'e');
+  return eTags[eTags.length - 1]?.[1] === proposalEventId;
 }
 
 function matchesChannelWhenPresent(

@@ -11,10 +11,12 @@ describe('@proofline/worker package boundary', () => {
         cwd: process.cwd(),
         encoding: 'utf8',
         shell: process.platform === 'win32',
+        timeout: 20000,
       },
     );
 
     expect(build.status, `${build.stdout}\n${build.stderr}`).toBe(0);
+    expect(build.error).toBeUndefined();
 
     const imported = spawnSync(
       process.execPath,
@@ -27,10 +29,12 @@ describe('@proofline/worker package boundary', () => {
         cwd: join(process.cwd(), 'apps', 'worker'),
         encoding: 'utf8',
         shell: false,
+        timeout: 10000,
       },
     );
 
     expect(imported.status, `${imported.stdout}\n${imported.stderr}`).toBe(0);
+    expect(imported.error).toBeUndefined();
     expect(imported.stdout.trim()).toBe('function');
   });
 });

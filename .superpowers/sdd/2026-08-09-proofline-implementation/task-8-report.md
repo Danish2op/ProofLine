@@ -77,3 +77,26 @@ Strict TDD and bounded verification:
 - Prettier check passed for all changed formatter-supported Task 8 TypeScript/test files after formatting; SQL migrations were validated by migration contract tests and `git diff --check` because the configured Prettier parser does not support SQL.
 
 No full suite, root lint, live Supabase migration/RPC execution, or unbounded command was run.
+
+## Fix round 4 evidence (2026-08-11)
+
+Reviewer findings addressed:
+
+- Approval RPC serialization now strips `source_target_status` and `source_actor_type` and sends exactly the 13 named arguments in `approve_verified_action_v2`; a contract test asserts the exact key set and rejects extras.
+- Migration 0015 selects the last `e` tag using `WITH ORDINALITY ... ORDER BY ordinal DESC`, matching the NIP-25 adapter target rule; the parser has the corresponding last-`e` regression.
+- `scripts/verify-supabase-db.ts` now applies migrations through 0015, uses observation plus `approve_verified_action_v2`/versioned transition calls, checks expected outcomes, and retains the explicit no-credentials skip. No retired `apply_verified_buzz_approval` call remains in the script.
+- Worker package subprocess checks now have bounded timeouts and explicit spawn-error assertions; the worker test passed in the focused and full runs.
+
+Strict TDD and bounded verification:
+
+- RED: `pnpm vitest run tests/integration/lifecycle/edge-boundaries.test.ts tests/integration/database/constraints.test.ts tests/unit/scripts/verify-supabase-db-buzz-probe.test.ts tests/unit/buzz-adapter/approval-parser.test.ts tests/unit/lifecycle/worker-package.test.ts` — 4 expected failures / 36 tests; the worker file passed.
+- Focused GREEN: same command — 5 files passed, 36 tests passed, 3.91s.
+- Bounded full suite: `pnpm vitest run --testTimeout 30000` — 24 files passed, 255 tests passed, 1 skipped, 9.06s.
+- `pnpm --filter @proofline/buzz-adapter run build` — exit 0.
+- `pnpm --filter @proofline/worker run build` — exit 0.
+- `pnpm typecheck` — exit 0.
+- `pnpm lint` — exit 0.
+- Changed formatter-supported files passed Prettier and `git diff --check`.
+- `pnpm db:verify` — exit 0 with the explicit `SUPABASE_DB_URL` skip; no live database claim.
+
+No live Supabase migration/RPC execution was possible without credentials.

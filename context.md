@@ -132,3 +132,9 @@ Evidence: RED recorded 5 failures / 21 tests; final bounded regression passed 5 
 Verified Buzz approval parsing now matches the actual Nostr event shape: kind 9 decision JSON is read from `content`, kind 7 reactions are supported, and malformed/wrong-shape approval observations fail closed. The Buzz adapter records observations only; application uses the versioned provenance-aware lifecycle RPC, while migration 0015 revokes the legacy service-role approval grant and stores verified approval timestamps.
 
 Evidence: RED recorded 4 failures / 21 tests; final focused tests passed 6 files / 59 tests; Buzz adapter build and typecheck exited 0; scoped ESLint exited 0 with six configuration-ignore warnings; formatter-supported changed files passed Prettier. No full suite or live database probe was run.
+
+## Task 8 fix round 4 status (2026-08-11)
+
+The approval boundary now serializes exactly the v2 SQL contract, migration 0015 and the adapter use the last NIP-25 `e` tag, and the Supabase verification script covers migrations through 0015 without retired approval-RPC calls. Worker subprocess checks are explicitly bounded and deterministic.
+
+Evidence: RED recorded 4 failures / 36 tests; focused GREEN passed 5 files / 36 tests; bounded full Vitest passed 24 files / 255 tests with 1 skip; both package builds, typecheck, lint, and formatter checks passed. `pnpm db:verify` exited 0 with the expected missing-credentials skip. Do not begin Task 9.

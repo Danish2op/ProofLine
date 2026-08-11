@@ -14,6 +14,8 @@ const processBuzzModule =
   await import('../../../supabase/functions/process-buzz-event/index.ts');
 const createModule =
   await import('../../../supabase/functions/create-action/index.ts');
+const lifecycleBoundaryModule =
+  await import('../../../supabase/functions/_shared/lifecycle-boundary.ts');
 
 type Caller = { userId: string; accessToken: string };
 type BoundaryDependencies = {
@@ -155,6 +157,46 @@ describe('revoke-action command boundary', () => {
 });
 
 describe('approve-action command boundary', () => {
+  it('serializes exactly the named approve_verified_action_v2 SQL arguments', () => {
+    const payload = lifecycleBoundaryModule.lifecycleRpcPayload({
+      target_workspace_id: workspaceId,
+      target_action_passport_id: actionId,
+      source_expected_version: 0,
+      source_target_status: 'APPROVED',
+      source_command_id: '00000000-0000-4000-8000-000000000032',
+      source_command_hash: 'b'.repeat(64),
+      source_actor_type: 'human',
+      source_actor_id: caller.userId,
+      source_correlation_id: '00000000-0000-4000-8000-000000000033',
+      source_causation_id: null,
+      source_approval_event_id: 'a'.repeat(64),
+      source_approved_at: '2026-08-11T10:00:00.000Z',
+      source_expires_at: '2026-08-11T11:00:00.000Z',
+      source_approval_actor_pubkey: 'c'.repeat(64),
+      source_approval_raw_event_json: { id: 'a'.repeat(64) },
+    });
+
+    expect(Object.keys(payload).sort()).toEqual(
+      [
+        'source_approval_actor_pubkey',
+        'source_approval_event_id',
+        'source_approval_raw_event_json',
+        'source_approved_at',
+        'source_causation_id',
+        'source_command_hash',
+        'source_command_id',
+        'source_correlation_id',
+        'source_actor_id',
+        'source_expected_version',
+        'source_expires_at',
+        'target_action_passport_id',
+        'target_workspace_id',
+      ].sort(),
+    );
+    expect(payload).not.toHaveProperty('source_target_status');
+    expect(payload).not.toHaveProperty('source_actor_type');
+  });
+
   it('requires the complete verified approval contract before calling the lifecycle RPC', async () => {
     const transition = vi.fn(async () => Response.json({ ok: true }));
     const handler = approveModule.createApproveActionHandler(

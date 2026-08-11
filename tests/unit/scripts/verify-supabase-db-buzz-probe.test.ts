@@ -4,8 +4,25 @@ import {
   createVerifiedBuzzProposal,
   recordExpectedVerifiedBuzzProposal,
 } from '../../../scripts/verify-supabase-db.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 describe('live Supabase verified Buzz proposal probe', () => {
+  it('tracks migrations through 0015 and uses observation plus v2 lifecycle RPCs', () => {
+    const script = readFileSync(
+      join(process.cwd(), 'scripts', 'verify-supabase-db.ts'),
+      'utf8',
+    );
+
+    expect(script).toContain(
+      "'0015_task_8_approval_observation_retirement.sql'",
+    );
+    expect(script).toContain('record_verified_buzz_approval_observation');
+    expect(script).toContain('approve_verified_action_v2');
+    expect(script).not.toContain('apply_verified_buzz_approval(');
+    expect(script).toContain('SKIPPED: set SUPABASE_DB_URL');
+  });
+
   it('records the second proposal with its migration-0011 passport hash', async () => {
     const passportHash = 'b'.repeat(64);
     const proposal = createVerifiedBuzzProposal({

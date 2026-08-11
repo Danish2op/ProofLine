@@ -18,6 +18,10 @@ const migrationNames = [
   '0009_task_7_verified_buzz_approval.sql',
   '0010_task_7_proposal_binding_and_request_changes.sql',
   '0011_task_7_signed_passport_binding.sql',
+  '0012_task_8_lifecycle_commands.sql',
+  '0013_task_8_lifecycle_hardening.sql',
+  '0014_task_8_lifecycle_provenance_hardening.sql',
+  '0015_task_8_approval_observation_retirement.sql',
 ] as const;
 
 async function main(): Promise<void> {
@@ -155,8 +159,18 @@ async function verifyLiveDatabase(client: Client): Promise<void> {
     await runAsAuthenticated(client, userA, async () => {
       await expectFailure(
         client,
-        "select public.apply_verified_buzz_approval($1, current_timestamp, current_timestamp + interval '1 hour', 'wss://relay.example.test/', $2::jsonb)",
-        [workspaceA, JSON.stringify(validBuzzEvent('a', 'b'))],
+        "select public.approve_verified_action_v2($1, $2, 0, $3, $4, $5, $6, null, $7, current_timestamp, current_timestamp + interval '1 hour', $8, $9::jsonb)",
+        [
+          workspaceA,
+          randomUUID(),
+          randomUUID(),
+          'a'.repeat(64),
+          'probe-user',
+          randomUUID(),
+          'b'.repeat(64),
+          'c'.repeat(64),
+          JSON.stringify(validBuzzEvent('a', 'b')),
+        ],
         'permission denied',
       );
     });
@@ -165,7 +179,7 @@ async function verifyLiveDatabase(client: Client): Promise<void> {
 
 async function hasVerifiedBuzzApprovalRpc(client: Client): Promise<boolean> {
   const result = await client.query<{ present: boolean }>(
-    "select to_regprocedure('public.apply_verified_buzz_approval(uuid,timestamptz,timestamptz,text,jsonb)') is not null as present",
+    "select to_regprocedure('public.approve_verified_action_v2(uuid,uuid,bigint,uuid,text,text,uuid,uuid,text,timestamptz,timestamptz,text,jsonb)') is not null as present",
   );
   return result.rows[0]?.present === true;
 }
@@ -237,11 +251,47 @@ async function verifyVerifiedBuzzApprovalRpc(
   );
 
   const reaction = validBuzzEvent('4', '2', [['e', proposalEventId]]);
-  const applied = await client.query<{ result: string }>(
-    "select public.apply_verified_buzz_approval($1, current_timestamp, current_timestamp + interval '1 hour', 'wss://relay.example.test/', $2::jsonb) as result",
-    [workspaceId, JSON.stringify(reaction)],
+  const approvedAt = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  const observation = await client.query<{ result: string }>(
+    "select public.record_verified_buzz_approval_observation($1, $2, $3, 'wss://relay.example.test/', $4::jsonb) as result",
+    [workspaceId, approvedAt, expiresAt, JSON.stringify(reaction)],
   );
-  assert.equal(applied.rows[0]?.result, 'applied');
+  assert.equal(observation.rows[0]?.result, 'stored');
+  const approvalCommandId = randomUUID();
+  const approvalCorrelationId = randomUUID();
+  const approvalHash = await lifecycleCommandHash(client, {
+    workspaceId,
+    actionPassportId,
+    expectedVersion: 0,
+    targetStatus: 'APPROVED',
+    commandId: approvalCommandId,
+    actorId: 'probe-user',
+    correlationId: approvalCorrelationId,
+    approvalEventId: String(reaction.id),
+    approvedAt,
+    expiresAt,
+    approvalActorPubkey: reviewerPubkey,
+    rawEvent: reaction,
+  });
+  const applied = await client.query<{ result: { ok: boolean } }>(
+    'select public.approve_verified_action_v2($1, $2, $3, $4, $5, $6, $7, null, $8, $9, $10, $11, $12::jsonb) as result',
+    [
+      workspaceId,
+      actionPassportId,
+      0,
+      approvalCommandId,
+      approvalHash,
+      'probe-user',
+      approvalCorrelationId,
+      String(reaction.id),
+      approvedAt,
+      expiresAt,
+      reviewerPubkey,
+      JSON.stringify(reaction),
+    ],
+  );
+  assert.equal(applied.rows[0]?.result.ok, true);
   const boundStatuses = await client.query<{ id: string; status: string }>(
     'select id, status from public.action_passports where id = any($1::uuid[])',
     [[actionPassportId, secondActionPassportId]],
@@ -255,14 +305,27 @@ async function verifyVerifiedBuzzApprovalRpc(
     'PENDING_APPROVAL',
   );
 
-  const replay = await client.query<{ result: string }>(
-    "select public.apply_verified_buzz_approval($1, current_timestamp, current_timestamp + interval '1 hour', 'wss://relay.example.test/', $2::jsonb) as result",
-    [workspaceId, JSON.stringify(reaction)],
+  const replay = await client.query<{ result: { replayed?: boolean } }>(
+    'select public.approve_verified_action_v2($1, $2, $3, $4, $5, $6, $7, null, $8, $9, $10, $11, $12::jsonb) as result',
+    [
+      workspaceId,
+      actionPassportId,
+      0,
+      approvalCommandId,
+      approvalHash,
+      'probe-user',
+      approvalCorrelationId,
+      String(reaction.id),
+      approvedAt,
+      expiresAt,
+      reviewerPubkey,
+      JSON.stringify(reaction),
+    ],
   );
-  assert.equal(replay.rows[0]?.result, 'duplicate');
+  assert.equal(replay.rows[0]?.result.replayed, true);
 
   const selfApproval = await client.query<{ result: string }>(
-    "select public.apply_verified_buzz_approval($1, current_timestamp, current_timestamp + interval '1 hour', 'wss://relay.example.test/', $2::jsonb) as result",
+    "select public.record_verified_buzz_approval_observation($1, current_timestamp, current_timestamp + interval '1 hour', 'wss://relay.example.test/', $2::jsonb) as result",
     [
       workspaceId,
       JSON.stringify(validBuzzEvent('5', '1', [['e', proposalEventId]])),
@@ -289,16 +352,94 @@ async function verifyVerifiedBuzzApprovalRpc(
     9,
     '{"proofline":{"decision":"request_changes"}}',
   );
-  const changes = await client.query<{ result: string }>(
-    "select public.apply_verified_buzz_approval($1, current_timestamp, current_timestamp + interval '1 hour', 'wss://relay.example.test/', $2::jsonb) as result",
+  const changesObservation = await client.query<{ result: string }>(
+    "select public.record_verified_buzz_approval_observation($1, current_timestamp, current_timestamp + interval '1 hour', 'wss://relay.example.test/', $2::jsonb) as result",
     [workspaceId, JSON.stringify(changesApproval)],
   );
-  assert.equal(changes.rows[0]?.result, 'applied');
+  assert.equal(changesObservation.rows[0]?.result, 'stored');
+  const changesCommandId = randomUUID();
+  const changesCorrelationId = randomUUID();
+  const changesHash = await lifecycleCommandHash(client, {
+    workspaceId,
+    actionPassportId: secondActionPassportId,
+    expectedVersion: 0,
+    targetStatus: 'BLOCKED',
+    commandId: changesCommandId,
+    actorId: 'probe-user',
+    correlationId: changesCorrelationId,
+    rawEvent: {},
+  });
+  const changes = await client.query<{ result: { ok: boolean } }>(
+    "select public.transition_action($1, $2, 0, $3, $4, $5, 'human', $6, $7, null, null, null, null, null, null) as result",
+    [
+      workspaceId,
+      secondActionPassportId,
+      'BLOCKED',
+      changesCommandId,
+      changesHash,
+      'probe-user',
+      changesCorrelationId,
+    ],
+  );
+  assert.equal(changes.rows[0]?.result.ok, true);
   const changesStatus = await client.query<{ status: string }>(
     'select status from public.action_passports where id = $1',
     [secondActionPassportId],
   );
   assert.equal(changesStatus.rows[0]?.status, 'BLOCKED');
+}
+
+async function lifecycleCommandHash(
+  client: Client,
+  input: {
+    workspaceId: string;
+    actionPassportId: string;
+    expectedVersion: number;
+    targetStatus: string;
+    commandId: string;
+    actorId: string;
+    correlationId: string;
+    approvalEventId?: string;
+    approvedAt?: string;
+    expiresAt?: string;
+    approvalActorPubkey?: string;
+    rawEvent: Record<string, unknown>;
+  },
+): Promise<string> {
+  const result = await client.query<{ hash: string }>(
+    `select proofline_internal.sha256_json(jsonb_build_object(
+      'workspaceId', $1::uuid,
+      'actionPassportId', $2::uuid,
+      'expectedVersion', $3,
+      'targetStatus', $4,
+      'commandId', $5::uuid,
+      'actorType', 'human',
+      'actorId', $6,
+      'correlationId', $7::uuid,
+      'causationId', null,
+      'approvalEventId', $8,
+      'approvedAt', $9::timestamptz,
+      'expiresAt', $10::timestamptz,
+      'approvalActorPubkey', $11,
+      'approvalRawEvent', $12::jsonb
+    )) as hash`,
+    [
+      input.workspaceId,
+      input.actionPassportId,
+      input.expectedVersion,
+      input.targetStatus,
+      input.commandId,
+      input.actorId,
+      input.correlationId,
+      input.approvalEventId ?? null,
+      input.approvedAt ?? null,
+      input.expiresAt ?? null,
+      input.approvalActorPubkey ?? null,
+      JSON.stringify(input.rawEvent),
+    ],
+  );
+  assert.match(result.rows[0]?.hash ?? '', /^[0-9a-f]{64}$/);
+  return result.rows[0].hash;
 }
 
 interface ProbeQueryClient {

@@ -207,3 +207,11 @@ Decision: Buzz adapter provenance records verified approval observations only; t
 Reason: provenance recording and lifecycle mutation have different trust boundaries. A verified event must be durably observed without allowing the adapter to bypass Task 8 version checks, workspace/action binding, reviewer authorization, or lifecycle audit receipts.
 
 Validation: RED recorded 4 failures / 21 tests. Final focused tests passed 6 files / 59 tests; Buzz adapter build and `pnpm typecheck` exited 0. Scoped ESLint had six configuration-ignore warnings; formatter-supported files passed Prettier; no live SQL execution was attempted.
+
+## D-026 — Task 8 fix round 4 exact RPC and bounded verification
+
+Decision: Edge approval serialization is an explicit allowlist for the v2 SQL signature; NIP-25 target resolution uses the final `e` tag; the executable database probe follows observation plus versioned lifecycle calls through migration 0015; and worker subprocess checks are timeout-bounded with spawn failures surfaced.
+
+Reason: named RPC boundaries must not accidentally widen when internal command fields evolve, and live verification must exercise the same retired-RPC-free path as production while remaining safe without credentials.
+
+Validation: RED recorded 4 failures / 36 tests. Focused GREEN passed 5 files / 36 tests; bounded full Vitest passed 24 files / 255 tests with 1 skip; Buzz adapter and worker builds, typecheck, lint, Prettier, `git diff --check`, and credential-gated `pnpm db:verify` skip all passed.

@@ -92,8 +92,20 @@ export async function transitionRpc(
       authorization: `Bearer ${serviceKey}`,
       'content-type': 'application/json',
     },
-    body: JSON.stringify(input),
+    body: JSON.stringify(lifecycleRpcPayload(input)),
   });
+}
+
+export function lifecycleRpcPayload(
+  input: Record<string, unknown>,
+): Record<string, unknown> {
+  if (input.source_target_status !== 'APPROVED') return { ...input };
+  const {
+    source_target_status: _targetStatus,
+    source_actor_type: _actorType,
+    ...approvedPayload
+  } = input;
+  return approvedPayload;
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {

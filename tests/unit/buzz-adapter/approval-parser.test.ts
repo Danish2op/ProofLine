@@ -180,6 +180,41 @@ describe('Buzz approval parsing', () => {
     ).toMatchObject({ decision: 'request_changes' });
   });
 
+  it('uses the last e tag as the NIP-25 proposal target', () => {
+    const reviewerPubkey = bytesToHex(
+      schnorr.getPublicKey(hexToBytes(testPrivateKey)),
+    );
+    const verified = verifyEvent(
+      signedEvent({
+        kind: 7,
+        tags: [
+          ['e', 'b'.repeat(64)],
+          ['e', proposalEventId],
+        ],
+        content: '+',
+      }),
+    );
+
+    expect(
+      parseApprovalEvent(verified, {
+        proposalEventId,
+        workspaceId,
+        channelId,
+        reviewerIdentities: new Map([[reviewerPubkey, { active: true }]]),
+        proposal: { workspaceId, channelId, proposerPubkey: 'e'.repeat(64) },
+      }),
+    ).toMatchObject({ decision: 'approved' });
+    expect(
+      parseApprovalEvent(verified, {
+        proposalEventId: 'b'.repeat(64),
+        workspaceId,
+        channelId,
+        reviewerIdentities: new Map([[reviewerPubkey, { active: true }]]),
+        proposal: { workspaceId, channelId, proposerPubkey: 'e'.repeat(64) },
+      }),
+    ).toMatchObject({ code: 'missing_proposal_reference' });
+  });
+
   it('fails closed when a message decision has malformed JSON content', () => {
     const reviewerPubkey = bytesToHex(
       schnorr.getPublicKey(hexToBytes(testPrivateKey)),
