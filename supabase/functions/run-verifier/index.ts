@@ -20,6 +20,7 @@ export interface ServerPassportRecord {
   passportHash: string;
   revisionHash: string;
   passport: unknown;
+  proposal: unknown;
   actor: unknown;
   toolMetadata: unknown;
   workspacePolicy: unknown;
@@ -217,6 +218,8 @@ function bindVerificationInput(
     idempotencyKey,
     passportHash: passport.passportHash,
     passport: passport.passport,
+    proposal: passport.proposal,
+    now: new Date().toISOString(),
     authorizedTarget: passport.passport.target,
     actor: passport.actor,
     toolMetadata: passport.toolMetadata,
@@ -237,7 +240,11 @@ function validateServerPassport(
     passport.actionPassportRowId.length === 0 ||
     typeof passport.revisionHash !== 'string' ||
     typeof passport.actionPassportHash !== 'string' ||
-    !/^[0-9a-f]{64}$/.test(passport.passportHash)
+    !/^[0-9a-f]{64}$/.test(passport.passportHash) ||
+    passport.proposal === undefined ||
+    passport.actor === undefined ||
+    passport.toolMetadata === undefined ||
+    passport.workspacePolicy === undefined
   ) {
     return null;
   }
@@ -314,13 +321,23 @@ async function loadPassportFromSupabase(
     authorization: `Bearer ${caller.accessToken}`,
   };
   const action = await getJson(
-    `${url}/rest/v1/action_passports?workspace_id=eq.${encodeURIComponent(workspaceId)}&action_id=eq.${actionId}&select=id,action_id,workspace_id,passport_hash`,
+    `${url}/rest/v1/action_passports?workspace_id=eq.${encodeURIComponent(workspaceId)}&action_id=eq.${actionId}&select=id,action_id,workspace_id,passport_hash,agent_id,tool_definition_id,policy_id`,
     headers,
   );
   if (!Array.isArray(action) || !isRecord(action[0])) return null;
   const actionRow = action[0];
   const rowId = typeof actionRow.id === 'string' ? actionRow.id : null;
   if (rowId === null) return null;
+  const agentId =
+    typeof actionRow.agent_id === 'string' ? actionRow.agent_id : null;
+  const toolDefinitionId =
+    typeof actionRow.tool_definition_id === 'string'
+      ? actionRow.tool_definition_id
+      : null;
+  const policyId =
+    typeof actionRow.policy_id === 'string' ? actionRow.policy_id : null;
+  if (agentId === null || toolDefinitionId === null || policyId === null)
+    return null;
   const revision = await getJson(
     `${url}/rest/v1/action_revisions?workspace_id=eq.${encodeURIComponent(workspaceId)}&action_passport_id=eq.${rowId}&select=passport_hash,payload_json&order=revision_number.desc&limit=1`,
     headers,
@@ -335,6 +352,39 @@ async function loadPassportFromSupabase(
   } catch {
     return null;
   }
+  const [agentRows, toolRows, policyRows, evidenceRows, proposalRows] =
+    await Promise.all([
+      getJson(
+        `${url}/rest/v1/agents?workspace_id=eq.${encodeURIComponent(workspaceId)}&id=eq.${agentId}&select=pubkey,status,delegated_by`,
+        headers,
+      ),
+      getJson(
+        `${url}/rest/v1/tool_definitions?workspace_id=eq.${encodeURIComponent(workspaceId)}&id=eq.${toolDefinitionId}&select=name,definition_hash,metadata_json`,
+        headers,
+      ),
+      getJson(
+        `${url}/rest/v1/policies?workspace_id=eq.${encodeURIComponent(workspaceId)}&id=eq.${policyId}&select=version,document_json`,
+        headers,
+      ),
+      getJson(
+        `${url}/rest/v1/evidence_items?workspace_id=eq.${encodeURIComponent(workspaceId)}&action_passport_id=eq.${rowId}&select=evidence_id,source,content_hash,collected_at,expires_at,metadata_json&order=evidence_id.asc`,
+        headers,
+      ),
+      getJson(
+        `${url}/rest/v1/buzz_event_provenance?workspace_id=eq.${encodeURIComponent(workspaceId)}&action_passport_id=eq.${rowId}&event_kind=eq.9&signature_verified=eq.true&select=raw_event_json&order=received_at.desc&limit=1`,
+        headers,
+      ),
+    ]);
+  const tool = readTool(toolRows);
+  const agent = readAgent(
+    agentRows,
+    validatedPayload.value.agentPubkey,
+    validatedPayload.value.delegatedBy,
+    tool?.metadata.declaredScopes,
+  );
+  const policy = readPolicy(policyRows);
+  const evidence = readEvidence(evidenceRows);
+  const proposal = readBuzzProposal(proposalRows, revision[0].passport_hash);
   return typeof actionRow.action_id === 'string' &&
     typeof actionRow.workspace_id === 'string' &&
     typeof actionRow.passport_hash === 'string' &&
@@ -349,12 +399,146 @@ async function loadPassportFromSupabase(
         passportHash: revision[0].passport_hash,
         revisionHash: revision[0].passport_hash,
         passport: validatedPayload.value,
-        actor: undefined,
-        toolMetadata: undefined,
-        workspacePolicy: undefined,
-        trustedEvidenceFacts: [],
+        proposal,
+        actor: agent?.actor,
+        toolMetadata: tool?.metadata,
+        workspacePolicy: policy?.policy,
+        trustedEvidenceFacts: evidence?.facts ?? [],
       }
     : null;
+}
+
+function readAgent(
+  value: unknown,
+  expectedPubkey: string,
+  delegatedBy: string,
+  scopes: unknown,
+): { actor: Record<string, unknown> } | null {
+  const row = firstRecord(value);
+  if (
+    row === null ||
+    row.pubkey !== expectedPubkey ||
+    row.status !== 'active' ||
+    (row.delegated_by !== null && row.delegated_by !== delegatedBy)
+  )
+    return null;
+  if (!stringArray(scopes)) return null;
+  return {
+    actor: {
+      pubkey: expectedPubkey,
+      roles: ['agent'],
+      recognized: true,
+      delegatedAuthority: { delegatedBy, scopes },
+    },
+  };
+}
+
+function readTool(
+  value: unknown,
+): { metadata: Record<string, unknown> } | null {
+  const row = firstRecord(value);
+  if (
+    row === null ||
+    typeof row.definition_hash !== 'string' ||
+    !isRecord(row.metadata_json)
+  )
+    return null;
+  const metadata = row.metadata_json;
+  if (
+    typeof metadata.readOnly !== 'boolean' ||
+    typeof metadata.destructive !== 'boolean' ||
+    typeof metadata.idempotent !== 'boolean' ||
+    typeof metadata.externalSideEffect !== 'boolean' ||
+    !stringArray(metadata.dataClasses) ||
+    !stringArray(metadata.declaredScopes)
+  )
+    return null;
+  return { metadata: { ...metadata, definitionHash: row.definition_hash } };
+}
+
+function readPolicy(
+  value: unknown,
+): { policy: Record<string, unknown> } | null {
+  const row = firstRecord(value);
+  if (
+    row === null ||
+    typeof row.version !== 'string' ||
+    !isRecord(row.document_json)
+  )
+    return null;
+  const document = row.document_json;
+  if (!stringArray(document.trustedToolDefinitionHashes)) return null;
+  return { policy: { ...document, version: row.version } };
+}
+
+function readEvidence(value: unknown): { facts: unknown[] } | null {
+  if (!Array.isArray(value)) return null;
+  const facts: unknown[] = [];
+  for (const candidate of value) {
+    if (
+      !isRecord(candidate) ||
+      typeof candidate.evidence_id !== 'string' ||
+      typeof candidate.source !== 'string' ||
+      typeof candidate.content_hash !== 'string' ||
+      typeof candidate.collected_at !== 'string' ||
+      typeof candidate.expires_at !== 'string'
+    )
+      return null;
+    const metadata = isRecord(candidate.metadata_json)
+      ? candidate.metadata_json
+      : {};
+    const claims = Array.isArray(metadata.claims) ? metadata.claims : [];
+    for (const claim of claims) {
+      if (
+        !isRecord(claim) ||
+        typeof claim.claimId !== 'string' ||
+        typeof claim.subject !== 'string' ||
+        typeof claim.value !== 'string'
+      )
+        return null;
+      facts.push({
+        claimId: claim.claimId,
+        evidenceId: candidate.evidence_id,
+        subject: claim.subject,
+        value: claim.value,
+      });
+    }
+  }
+  return { facts };
+}
+
+function readBuzzProposal(
+  value: unknown,
+  passportHash: unknown,
+): unknown | undefined {
+  const row = firstRecord(value);
+  if (row === null || !isRecord(row.raw_event_json)) return undefined;
+  const raw = row.raw_event_json;
+  if (typeof raw.content !== 'string') return undefined;
+  try {
+    const envelope = JSON.parse(raw.content);
+    if (
+      !isRecord(envelope) ||
+      !isRecord(envelope.proofline) ||
+      envelope.proofline.type !== 'proposal' ||
+      envelope.proofline.passportHash !== passportHash ||
+      typeof envelope.message !== 'string'
+    )
+      return undefined;
+    return JSON.parse(envelope.message);
+  } catch {
+    return undefined;
+  }
+}
+
+function firstRecord(value: unknown): Record<string, unknown> | null {
+  return Array.isArray(value) && isRecord(value[0]) ? value[0] : null;
+}
+
+function stringArray(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) && value.every((item) => typeof item === 'string')
+  );
 }
 
 async function findFeedbackFromSupabase(

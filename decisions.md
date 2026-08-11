@@ -352,3 +352,20 @@ Validation: strict RED returned `approve` for the colliding tuple. Focused
 GREEN passed 3 Task 9 verifier files / 28 tests, including the adversarial
 regression that now requires `unbound_evidence_fact`. Typecheck, workspace
 build, and repository-wide Prettier passed. Task 10 was not started.
+## D-035 — Server-owned verifier context is mandatory
+
+Decision: the public verifier request contains only workspace/action/request
+identifiers. The Edge Function reconstructs proposal, agent, tool metadata,
+policy, evidence facts, and current time from authenticated server-owned
+records, including the latest signature-verified Buzz proposal provenance.
+Missing or malformed context fails closed before calling the verifier.
+
+Reason: accepting client-supplied verifier context would create a confused
+deputy and the previous production loader could invoke the verifier with
+undefined required fields. Buzz proposal content is parsed only after its
+server provenance row, passport hash binding, and proposal envelope are
+checked; human-readable or absent proposal messages are rejected.
+
+Validation: RED exposed the missing proposal/now binding; GREEN and the full
+bounded suite passed 28 files / 291 tests / 1 credential-gated skip, plus
+typecheck, agent build, formatting, and diff checks.

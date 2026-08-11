@@ -267,3 +267,14 @@ untrusted field contains NUL. The adversarial RED test reproduced the defect as
 an incorrect `approve`; focused GREEN passed 3 Task 9 verifier files / 28 tests.
 Fresh typecheck, workspace build, and repository-wide formatting also passed.
 Task 10 was not started.
+## Task 9 production-boundary remediation (2026-08-11)
+
+The `run-verifier` entrypoint now binds `proposal` and a server-generated `now`
+into verifier input. Its Supabase loader resolves the action's agent, tool
+definition, policy, evidence facts, and latest signature-verified Buzz proposal
+provenance; incomplete or malformed server context fails closed before verifier
+execution. Full bounded verification passed 28 files / 291 tests / 1
+credential-gated skip; typecheck, agent build, format, and diff checks passed.
+The loader requires structured tool/policy metadata and a JSON ProposalResult
+message inside a recorded Buzz proposal event; human-readable or absent
+proposals are intentionally rejected. Task 10 remains next.

@@ -125,6 +125,8 @@ describe('run-verifier boundary', () => {
         workspaceId,
         passportHash: actionOneHash,
         passport: serverPassport.passport,
+        proposal: serverPassport.proposal,
+        now: expect.any(String),
         actor: serverPassport.actor,
         toolMetadata: serverPassport.toolMetadata,
         workspacePolicy: serverPassport.workspacePolicy,
@@ -398,6 +400,7 @@ function serverPassportRecord(
     actionId?: string;
     actionPassportRowId?: string;
     actor?: unknown;
+    proposal?: unknown;
   } = {},
 ) {
   const actionId = overrides.actionId ?? actionOneId;
@@ -412,6 +415,7 @@ function serverPassportRecord(
     revisionHash: passportHash,
     passport,
     actor: overrides.actor ?? { source: 'server' },
+    proposal: overrides.proposal ?? { source: 'server-proposal' },
     toolMetadata: { source: 'server' },
     workspacePolicy: { source: 'server' },
     trustedEvidenceFacts: [],
