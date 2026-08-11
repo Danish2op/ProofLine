@@ -144,3 +144,14 @@ Evidence: RED recorded 4 failures / 36 tests; focused GREEN passed 5 files / 36 
 The final reviewer findings are addressed: approval RPC serialization is a strict 13-field allowlist; credentialed database verification fails loudly when the v2/0015 lifecycle contract is absent; rejection audit IDs include canonical command hash/result with collision detection; and approve/create Edge files are formatted.
 
 Evidence: RED recorded 4 failures / 27 tests; focused GREEN passed 3 files / 27 tests; bounded full Vitest passed 24 files / 256 tests with 1 skip; both builds, typecheck, lint, Prettier, diff check, and the credential-gated db-verifier skip passed. No live database credentials were available. Do not begin Task 9.
+
+## Task 8 post-review remediation status (2026-08-11)
+
+The two remaining review gaps are remediated without starting Task 9. Credentialed database verification now requires the migration-0016 rejection-audit contract before fixture work and executes exact-replay plus distinct-command conflict probes; only missing credentials can skip. Migration 0016 serializes rejection recording, accepts only an identical receipt/audit replay, stores command identity in audit metadata, and raises deterministic idempotency/collision errors instead of silently suppressing conflicts.
+
+Strict RED covered stale credentialed verification, an executable probe that accepted a distinct command identity, and the remaining silent SQL conflict clauses. Final focused verification passed 3 files / 24 tests; typecheck exited 0. No live database probe was run, so migration 0016 deployment is not claimed. Do not begin Task 9.
+
+Takeover verification re-inspected the remediation contract on 2026-08-11. A
+fresh bounded run passed the same 3 files / 24 tests; typecheck, changed-file
+Prettier, and `git diff --check` passed. No live database probe ran because no
+credentials were available. Do not begin Task 9.

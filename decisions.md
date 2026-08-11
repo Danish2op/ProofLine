@@ -223,3 +223,15 @@ Decision: approve RPC serialization is a closed named-argument allowlist; creden
 Reason: security boundaries must fail closed both at the HTTP-to-PostgREST serialization edge and at deployment verification, while rejection auditing must preserve distinct conflicts rather than silently suppressing them.
 
 Validation: RED recorded 4 failures / 27 tests. Focused GREEN passed 3 files / 27 tests; bounded full Vitest passed 24 files / 256 tests with 1 skip; both builds, typecheck, lint, Prettier, diff check, and credential-gated db-verifier skip passed. No live SQL execution was possible.
+
+## D-028 — Task 8 rejection audit fail-closed remediation
+
+Decision: a credentialed verifier must prove the migration-0016 rejection-audit definition before fixture work and execute exact-replay plus distinct-command conflict probes. Rejection recording is serialized by workspace/action and audit identity; an existing receipt or audit is accepted only when workspace, aggregate, command ID, command hash, and result are identical. Distinct identities raise `lifecycle rejection idempotency conflict` or `lifecycle rejection audit collision`; silent conflict suppression is forbidden.
+
+Reason: listing a migration locally does not prove the connected database is current, and ignored uniqueness conflicts can erase evidence of a distinct rejected command.
+
+Validation: strict RED covered stale credentialed verification, accepted distinct command identity, and both remaining `ON CONFLICT DO NOTHING` clauses. Final focused verification passed 3 files / 24 tests; typecheck exited 0. No live database credentials were used.
+
+Takeover validation (2026-08-11): fresh focused verification again passed the
+same 3 files / 24 tests. Typecheck, Prettier for changed formatter-supported
+files, and `git diff --check` passed; no live database credentials were used.

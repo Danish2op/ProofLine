@@ -25,29 +25,41 @@ const migrationNames = [
   '0016_task_8_rejection_audit_collision_hardening.sql',
 ] as const;
 
-async function main(): Promise<void> {
-  const dbUrl = process.env.SUPABASE_DB_URL;
-  const shouldApply = process.argv.includes('--apply');
+interface SupabaseDbVerificationOptions {
+  dbUrl?: string;
+  shouldApply?: boolean;
+  disposableConfirmation?: string;
+  createClient?: (connectionString: string) => Client;
+  log?: (message: string) => void;
+  logError?: (message: string) => void;
+}
+
+export async function runSupabaseDbVerification(
+  options: SupabaseDbVerificationOptions = {},
+): Promise<number> {
+  const dbUrl = options.dbUrl ?? process.env.SUPABASE_DB_URL;
+  const shouldApply = options.shouldApply ?? process.argv.includes('--apply');
+  const disposableConfirmation =
+    options.disposableConfirmation ?? process.env.SUPABASE_DB_VERIFY_DISPOSABLE;
+  const createClient =
+    options.createClient ??
+    ((connectionString: string) => new Client({ connectionString }));
+  const log = options.log ?? console.log;
+  const logError = options.logError ?? console.error;
 
   if (!dbUrl) {
-    console.log(
-      'SKIPPED: set SUPABASE_DB_URL to run live Supabase database probes.',
-    );
-    return;
+    log('SKIPPED: set SUPABASE_DB_URL to run live Supabase database probes.');
+    return 0;
   }
 
-  if (
-    shouldApply &&
-    process.env.SUPABASE_DB_VERIFY_DISPOSABLE !== 'I_UNDERSTAND'
-  ) {
-    console.error(
+  if (shouldApply && disposableConfirmation !== 'I_UNDERSTAND') {
+    logError(
       'REFUSED: --apply requires SUPABASE_DB_VERIFY_DISPOSABLE=I_UNDERSTAND.',
     );
-    process.exitCode = 1;
-    return;
+    return 1;
   }
 
-  const client = new Client({ connectionString: dbUrl });
+  const client = createClient(dbUrl);
 
   try {
     await client.connect();
@@ -60,9 +72,10 @@ async function main(): Promise<void> {
       await client.query('ROLLBACK');
     }
 
-    console.log(
+    log(
       'PASS: live Supabase lifecycle, grant, and cross-tenant RLS probes passed.',
     );
+    return 0;
   } finally {
     await client.end();
   }
@@ -70,7 +83,7 @@ async function main(): Promise<void> {
 
 const invokedPath = process.argv[1];
 if (invokedPath && import.meta.url === pathToFileURL(invokedPath).href) {
-  await main();
+  process.exitCode = await runSupabaseDbVerification();
 }
 
 async function applyMigrations(client: Client): Promise<void> {
@@ -87,6 +100,7 @@ async function applyMigrations(client: Client): Promise<void> {
 }
 
 async function verifyLiveDatabase(client: Client): Promise<void> {
+  await assertTask8LifecycleContract(client);
   await verifyPgcryptoCompatibility(client);
   const workspaceA = randomUUID();
   const workspaceB = randomUUID();
@@ -108,6 +122,7 @@ async function verifyLiveDatabase(client: Client): Promise<void> {
     insertPassportSql(),
     passportValues(contextB, workspaceB, 'DRAFT'),
   );
+  await verifyRejectionAuditContract(client, contextA, workspaceA);
 
   await runAsAuthenticated(client, userA, async () => {
     const hidden = await client.query<{ id: string }>(
@@ -143,7 +158,6 @@ async function verifyLiveDatabase(client: Client): Promise<void> {
     assert.equal(draft.rowCount, 1, 'DRAFT passport insert was rejected');
   });
 
-  await assertTask8LifecycleContract(client);
   await runAsServiceRole(client, async () => {
     await verifyExecutionExpiry(client, contextA, workspaceA);
     await verifyPopulatedDemoCleanup(client, contextA, workspaceA);
@@ -175,6 +189,7 @@ async function assertTask8LifecycleContract(client: Client): Promise<void> {
     approval_rpc_present: boolean;
     observation_rpc_present: boolean;
     migration_0015_columns_present: boolean;
+    migration_0016_rejection_audit_present: boolean;
   }>(
     `select
        to_regprocedure('public.approve_verified_action_v2(uuid,uuid,bigint,uuid,text,text,uuid,uuid,text,timestamptz,timestamptz,text,jsonb)') is not null as approval_rpc_present,
@@ -186,18 +201,121 @@ async function assertTask8LifecycleContract(client: Client): Promise<void> {
            and column_name in ('approval_approved_at', 'approval_expires_at')
          group by table_schema, table_name
          having count(*) = 2
-       ) as migration_0015_columns_present`,
+       ) as migration_0015_columns_present,
+       coalesce(
+         pg_get_functiondef(
+           to_regprocedure('proofline_internal.record_lifecycle_rejection(uuid,uuid,uuid,text,jsonb,text,text,uuid,uuid)')
+         ) like '%lifecycle rejection idempotency conflict%'
+         and pg_get_functiondef(
+           to_regprocedure('proofline_internal.record_lifecycle_rejection(uuid,uuid,uuid,text,jsonb,text,text,uuid,uuid)')
+         ) like '%lifecycle rejection audit collision%',
+         false
+       ) as migration_0016_rejection_audit_present`,
   );
   const contract = result.rows[0];
   if (
     !contract?.approval_rpc_present ||
     !contract.observation_rpc_present ||
-    !contract.migration_0015_columns_present
+    !contract.migration_0015_columns_present ||
+    !contract.migration_0016_rejection_audit_present
   ) {
     throw new Error(
-      'Task 8 lifecycle contract is missing: migration 0015 and v2 approval/observation RPCs are required.',
+      'Task 8 lifecycle contract is missing: migration 0015 and v2 approval/observation RPCs are required; migration 0016 rejection-audit contract is required.',
     );
   }
+}
+
+export async function verifyRejectionAuditContract(
+  client: Client,
+  context: ProbeContext,
+  workspaceId: string,
+): Promise<void> {
+  const inserted = await client.query<{ id: string }>(
+    `${insertPassportSql()} returning id`,
+    passportValues(context, workspaceId, 'DRAFT'),
+  );
+  const actionPassportId = inserted.rows[0]?.id;
+  assert.ok(
+    actionPassportId,
+    'migration 0016 rejection-audit probe passport was not created',
+  );
+
+  const commandId = randomUUID();
+  const commandHash = '8'.repeat(64);
+  const correlationId = randomUUID();
+  const result = {
+    ok: false,
+    code: 'stale_version',
+    retryable: true,
+  };
+  const recordRejectionSql =
+    'select proofline_internal.record_lifecycle_rejection($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)';
+  const values = [
+    workspaceId,
+    actionPassportId,
+    commandId,
+    commandHash,
+    JSON.stringify(result),
+    'system',
+    'db-verifier',
+    correlationId,
+    null,
+  ];
+
+  await client.query(recordRejectionSql, values);
+  await client.query(recordRejectionSql, values);
+
+  await client.query('SAVEPOINT migration_0016_rejection_conflict');
+  let conflictObserved = false;
+  try {
+    await client.query(recordRejectionSql, [
+      ...values.slice(0, 3),
+      '9'.repeat(64),
+      JSON.stringify({ ...result, code: 'invalid_transition' }),
+      ...values.slice(5),
+    ]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes('lifecycle rejection idempotency conflict')) {
+      throw error;
+    }
+    conflictObserved = true;
+  } finally {
+    await client.query(
+      'ROLLBACK TO SAVEPOINT migration_0016_rejection_conflict',
+    );
+  }
+  assert.equal(
+    conflictObserved,
+    true,
+    'Migration 0016 rejection-audit probe accepted a distinct command identity.',
+  );
+
+  const stored = await client.query<{
+    command_hash: string;
+    result_json: Record<string, unknown>;
+    metadata_json: Record<string, unknown>;
+  }>(
+    `select receipt.command_hash, receipt.result_json, audit.metadata_json
+     from public.lifecycle_command_receipts receipt
+     join public.audit_events audit
+       on audit.workspace_id = receipt.workspace_id
+      and audit.aggregate_id = receipt.action_passport_id
+      and audit.event_type = 'action_command.rejected'
+      and audit.metadata_json->>'commandId' = receipt.command_id::text
+     where receipt.workspace_id = $1
+       and receipt.action_passport_id = $2
+       and receipt.command_id = $3`,
+    [workspaceId, actionPassportId, commandId],
+  );
+  assert.equal(stored.rowCount, 1, 'rejection audit identity was not unique');
+  assert.equal(stored.rows[0]?.command_hash, commandHash);
+  assert.deepEqual(stored.rows[0]?.result_json, result);
+  assert.deepEqual(stored.rows[0]?.metadata_json, {
+    commandId,
+    commandHash,
+    result,
+  });
 }
 
 async function verifyVerifiedBuzzApprovalRpc(

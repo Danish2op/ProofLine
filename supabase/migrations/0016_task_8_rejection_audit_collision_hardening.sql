@@ -27,13 +27,70 @@ declare
       result::text || ':rejected'
     )
   )::uuid;
+  audit_metadata jsonb := jsonb_build_object(
+    'commandId', source_command_id,
+    'commandHash', computed_command_hash,
+    'result', result
+  );
+  existing_command_hash text;
+  existing_result jsonb;
+  existing_receipt_found boolean := false;
+  existing_audit_workspace_id uuid;
+  existing_audit_aggregate_id uuid;
+  existing_audit_event_type text;
+  existing_audit_metadata jsonb;
+  existing_audit_found boolean := false;
 begin
-  insert into public.lifecycle_command_receipts (
-    workspace_id, action_passport_id, command_id, command_hash, result_json
-  ) values (
-    target_workspace_id, target_action_passport_id, source_command_id,
-    computed_command_hash, result
-  ) on conflict (workspace_id, action_passport_id, command_id) do nothing;
+  perform pg_advisory_xact_lock(
+    hashtextextended(
+      target_workspace_id::text || ':' || target_action_passport_id::text,
+      0
+    )
+  );
+  perform pg_advisory_xact_lock(
+    hashtextextended('rejection-audit:' || audit_id::text, 0)
+  );
+
+  select command_hash, result_json, true
+    into existing_command_hash, existing_result, existing_receipt_found
+  from public.lifecycle_command_receipts
+  where workspace_id = target_workspace_id
+    and action_passport_id = target_action_passport_id
+    and command_id = source_command_id
+  for update;
+
+  if existing_receipt_found then
+    if existing_command_hash is distinct from computed_command_hash
+      or existing_result is distinct from result then
+      raise exception 'lifecycle rejection idempotency conflict';
+    end if;
+  else
+    insert into public.lifecycle_command_receipts (
+      workspace_id, action_passport_id, command_id, command_hash, result_json
+    ) values (
+      target_workspace_id, target_action_passport_id, source_command_id,
+      computed_command_hash, result
+    );
+  end if;
+
+  select workspace_id, aggregate_id, event_type, metadata_json, true
+    into existing_audit_workspace_id, existing_audit_aggregate_id,
+      existing_audit_event_type, existing_audit_metadata, existing_audit_found
+  from public.audit_events
+  where id = audit_id
+  for update;
+
+  if existing_audit_found then
+    if existing_audit_workspace_id is distinct from target_workspace_id
+      or existing_audit_aggregate_id is distinct from target_action_passport_id
+      or existing_audit_event_type is distinct from 'action_command.rejected'
+      or existing_audit_metadata->>'commandId' is distinct from source_command_id::text
+      or existing_audit_metadata->>'commandHash' is distinct from computed_command_hash
+      or existing_audit_metadata->'result' is distinct from result then
+      raise exception 'lifecycle rejection audit collision';
+    end if;
+    return;
+  end if;
 
   insert into public.audit_events (
     id, workspace_id, actor_type, actor_id, event_type, aggregate_type,
@@ -43,19 +100,9 @@ begin
     case when source_actor_type in ('human', 'agent', 'worker', 'system')
       then source_actor_type else 'system' end,
     source_actor_id, 'action_command.rejected', 'action_passport',
-    target_action_passport_id, result, current_timestamp,
+    target_action_passport_id, audit_metadata, current_timestamp,
     source_correlation_id, source_causation_id
-  ) on conflict (id) do nothing;
-
-  if not exists (
-    select 1 from public.audit_events
-    where id = audit_id
-      and workspace_id = target_workspace_id
-      and aggregate_id = target_action_passport_id
-      and metadata_json = result
-  ) then
-    raise exception 'audit id collision';
-  end if;
+  );
 end;
 $$;
 

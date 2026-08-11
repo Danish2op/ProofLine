@@ -3,11 +3,78 @@ import { describe, expect, it } from 'vitest';
 import {
   createVerifiedBuzzProposal,
   recordExpectedVerifiedBuzzProposal,
+  runSupabaseDbVerification,
+  verifyRejectionAuditContract,
 } from '../../../scripts/verify-supabase-db.js';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 describe('live Supabase verified Buzz proposal probe', () => {
+  it('fails a credentialed verification when the migration-0016 contract is stale', async () => {
+    const output: string[] = [];
+    const client = {
+      async connect() {},
+      async end() {},
+      async query(sql: string) {
+        if (sql.includes('approval_rpc_present')) {
+          return {
+            rows: [
+              {
+                approval_rpc_present: true,
+                observation_rpc_present: true,
+                migration_0015_columns_present: true,
+                migration_0016_rejection_audit_present: false,
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      },
+    };
+
+    await expect(
+      runSupabaseDbVerification({
+        dbUrl: 'postgresql://credentialed.example.invalid/proofline',
+        shouldApply: false,
+        createClient: () => client as never,
+        log: (message) => output.push(message),
+      }),
+    ).rejects.toThrow(/migration 0016 rejection-audit contract is required/i);
+    expect(output).not.toContain(
+      'SKIPPED: set SUPABASE_DB_URL to run live Supabase database probes.',
+    );
+    expect(output).not.toContain(
+      'PASS: live Supabase lifecycle, grant, and cross-tenant RLS probes passed.',
+    );
+  });
+
+  it('fails the executable rejection probe when a distinct command identity is accepted', async () => {
+    const client = {
+      async query(sql: string) {
+        if (sql.includes('returning id')) {
+          return {
+            rows: [{ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }],
+          };
+        }
+        return { rows: [] };
+      },
+    };
+
+    await expect(
+      verifyRejectionAuditContract(
+        client as never,
+        {
+          agentId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          toolDefinitionId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+          policyId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        },
+        'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      ),
+    ).rejects.toThrow(
+      /migration 0016 rejection-audit probe accepted a distinct command identity/i,
+    );
+  });
+
   it('tracks migrations through 0015 and uses observation plus v2 lifecycle RPCs', () => {
     const script = readFileSync(
       join(process.cwd(), 'scripts', 'verify-supabase-db.ts'),

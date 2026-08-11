@@ -123,3 +123,24 @@ Strict TDD and bounded verification:
 - `pnpm db:verify` — exit 0 with the explicit missing-`SUPABASE_DB_URL` skip.
 
 No live Supabase migration/RPC execution was run because credentials were unavailable; SQL migration coverage remains artifact-based.
+
+## Post-review remediation evidence (2026-08-11)
+
+- The verifier now has a unit-testable credential branch, checks migration 0016 before fixture work, and executes exact-replay/distinct-command rejection probes. Missing credentials remain the sole SKIP path; stale credentialed databases throw before PASS.
+- Migration 0016 removes both `ON CONFLICT DO NOTHING` clauses, serializes aggregate and audit identity access, explicitly compares workspace, aggregate, command ID, command hash, and result, and raises deterministic idempotency/collision errors for distinct identities.
+
+Strict TDD evidence:
+
+- Verifier RED: 1 expected failure / 4 tests because the credential-aware entry point did not exist.
+- Migration artifact RED: 1 expected failure / 16 tests on the missing explicit conflict contract.
+- Executable probe RED: 1 expected failure / 5 tests because the rejection probe did not exist.
+- Final focused GREEN: `pnpm vitest run tests/unit/scripts/verify-supabase-db-buzz-probe.test.ts tests/integration/database/constraints.test.ts tests/integration/database/live-harness.test.ts --testTimeout 30000` — 3 files passed / 24 tests passed in 873 ms.
+- `pnpm typecheck` — exit 0.
+
+No live database verification ran; migration 0016 deployment is not claimed.
+
+Takeover verification (2026-08-11): the uncommitted remediation diff was
+independently inspected against the migration and verifier contracts. A fresh
+bounded run of the same three files passed 24 tests; `pnpm typecheck`, Prettier
+for all changed formatter-supported files, and `git diff --check` also passed.
+No live database probe ran because credentials remain unavailable.
