@@ -99,6 +99,15 @@ Start Task 8 lifecycle/state-machine implementation. Keep Task 7 stable unless
 a regression is proven; do not claim overall production readiness until Tasks
 8–18 are complete and reviewed.
 
+## Task 8 status (2026-08-11)
+
+Task 8 is implemented in commit `49fc1f7` with a pure lifecycle engine,
+serialized command boundary, forward-only migration `0012`, and Edge command
+adapters. Focused lifecycle/database tests passed (33 tests), typecheck passed,
+and the race suite passed five consecutive bounded runs. No post-change full
+suite, build, lint, format, or live database migration probe was run at the
+user's direction. Do not begin Task 9 in this task.
+
 ## Do not do
 
 - Do not begin Tasks 8–18 until Task 7 review is approved.

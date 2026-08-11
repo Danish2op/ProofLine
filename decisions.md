@@ -168,3 +168,20 @@ no live database claim is made.
 Decision: advance to Task 8 after independent approval of commit `0c9f1b1`.
 
 Reason: duplicate publication promises settle deterministically, the migration-0011 probe is corrected, and full regression evidence is green (216 passed, one explicit credential-gated skip).
+
+## D-022 — Lifecycle commands use versioned, replay-safe transactions
+
+Decision: Task 8 lifecycle changes use a pure state-machine contract in the
+domain and a forward-only database command boundary with action versions,
+command receipts, advisory plus row locking, and audit correlation/causation
+identifiers. Equivalent command replay returns its stored result; a reused
+command ID with a different payload fails closed.
+
+Reason: state transitions must be monotonic and concurrency-safe without
+silently retrying a rejected command or allowing a stale approval to resurrect
+an action.
+
+Validation: commit `49fc1f7`; focused lifecycle/database verification passed
+33 tests, typecheck passed, and the race suite passed five consecutive bounded
+runs. Live migration application was not attempted because no disposable
+`SUPABASE_DB_URL` was configured.
