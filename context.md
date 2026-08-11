@@ -175,3 +175,21 @@ typecheck, workspace build, lint, repository-wide Prettier, and `git diff
 `SUPABASE_DB_URL` skip, so migration deployment is not claimed. This runtime
 exposed no independent subagent dispatch control; a scoped controller diff and
 mutation review found no additional issue. Do not begin Task 9.
+
+## Task 9 status (2026-08-11)
+
+Task 9 is implemented and ready for independent review. `packages/agents`
+contains distinct deterministic proposer and verifier responsibilities: proposal
+construction is hash-bound and evidence-backed, while verification independently
+rejects schema/hash/evidence/policy/scope defects and returns only
+`approve`/`reject`/`request_changes`. Neither agent has execution, approval,
+lifecycle mutation, or direct persistence capability. Optional providers are
+typed, retry/timeout bounded, non-authoritative, and have deterministic fallback.
+The authenticated verifier boundary captures feedback through an injected
+append-only contract only. Fresh bounded verification passed 4 focused files /
+14 tests, typecheck, agents package build, scoped Prettier, and diff check. No
+live provider, credentials, Buzz, tool, database action, migration, or Task 10+
+work was used.
+
+The lockfile change is limited to the three new workspace links required by
+`@proofline/agents`; unrelated lockfile formatting was not rewritten.

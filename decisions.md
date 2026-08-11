@@ -262,3 +262,11 @@ passed. The credential-gated database verifier skipped because
 Decision: advance to Task 9 after independent approval of commit `e0acb7c`.
 
 Reason: lifecycle state transitions, provenance binding, workspace authorization, worker boundaries, replay/idempotency, audit collision handling, and stale-database verification are covered by passing bounded evidence.
+
+## D-030 — Deterministic agents are bounded reviewers, not authorities
+
+Decision: Task 9 uses two separate deterministic agents. The proposer creates a canonical draft passport from structured evidence and server-supplied policy inputs; the verifier independently recalculates canonical hash and policy, then returns a review disposition. Neither agent has execution, approval, lifecycle mutation, or direct persistence capability. `approve` means only that the verifier found no technical objection; a human must still approve the exact passport hash through the existing Buzz/provenance/lifecycle boundary.
+
+Reason: proposal synthesis and validation need independent responsibilities, and an AI/model-shaped output must never turn into self-authorization.
+
+Validation: focused agent/security tests passed 4 files / 14 tests. They cover canonical deterministic replay, production permission requests, conflicting and stale evidence, missing citations, malformed proposals/provider output, unknown tools, target changes, prompt injection, provider failures, and feedback capture authorization. Typecheck, agents build, Prettier, and `git diff --check` passed. Optional providers are retry/timeout-bounded and fall back to deterministic results; no paid provider is required.

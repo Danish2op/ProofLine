@@ -1,0 +1,52 @@
+# Task 9 Report — Deterministic Proposer and Verifier Agents
+
+## Scope delivered
+
+- Added a deterministic `ProposerAgent` that consumes typed evidence, trusted tool/policy metadata, and delegated actor context to construct a validated immutable Action Passport proposal. It emits canonical claims/citations, evidence references and facts, risk factors, uncertainties, requested human permissions, structured feedback, and a SHA-256 canonical passport hash.
+- Added an independent `VerifierAgent` that recomputes the passport hash and policy decision, validates citations, detects evidence conflicts, stale evidence, target scope expansion, malformed proposals, unknown tools, and replay conflicts. It returns only `approve`, `reject`, or `request_changes` with confidence, findings, escalation reasons, and human questions.
+- Added a deterministic optional-provider boundary. Provider calls are limited to three attempts and five seconds per attempt; malformed/failing output falls back to the deterministic result. Provider output is non-authoritative display advice and cannot alter the passport, policy, approval, tools, or lifecycle.
+- Added the authenticated `run-verifier` boundary. It performs no status transition; feedback is handed to an injected append-only provenance/audit-compatible sink only after verification completes.
+
+## Safety boundaries
+
+- Both agents declare structured read-only data access and explicitly prohibit tool execution, approval, lifecycle mutation, and direct persistence.
+- Evidence `content` is untrusted data only. It is excluded from the passport and never interpreted as instructions; references and explicit claims remain the only usable evidence inputs.
+- Agent request IDs use deterministic in-memory exact-replay behavior. A same-ID input with a changed canonical fingerprint fails closed with `idempotency_conflict`; no replay cache changes lifecycle state.
+- An `approve` verifier result is a technical review disposition, not human authorization. The required human question remains bound to the exact passport hash and must flow through the existing Buzz/provenance/lifecycle path.
+
+## TDD evidence
+
+- RED: `pnpm vitest run tests/unit/agents/proposer.test.ts tests/unit/agents/verifier.test.ts tests/security/agents/untrusted-content.test.ts --reporter=verbose` failed because `packages/agents/src/index.ts` did not exist (3 failed suites, no tests collected).
+- GREEN: the same focused command passed 3 files / 10 tests after the initial deterministic proposer, verifier, evidence, replay, and provider boundary.
+- RED: risk-reason, malformed-provider, and edge-boundary tests failed as expected: empty passport risk reasons, missing malformed-provider fallback, and absent `run-verifier` module (2 failed tests plus 1 missing-module suite).
+- GREEN: the next focused command passed 3 files / 8 tests after adding those bounded behaviors.
+- RED: unknown-tool verification failed as expected because the verifier returned `approve` for a policy-denied proposal.
+- GREEN/final focused regression: `pnpm vitest run tests/unit/agents tests/security/agents --reporter=verbose` passed 4 files / 14 tests. Coverage includes conflicting/stale evidence, missing citations, malformed output, changed target, unknown tool, prompt injection, provider failure, replay, deterministic fallback, and feedback capture authorization.
+
+## Fresh bounded verification
+
+```text
+pnpm vitest run tests/unit/agents tests/security/agents --reporter=verbose
+Test Files  4 passed (4)
+Tests  14 passed (14)
+
+pnpm typecheck
+$ tsc --noEmit
+
+pnpm --filter @proofline/agents run build
+$ pnpm --filter @proofline/canonical run build && pnpm --filter @proofline/domain run build && pnpm --filter @proofline/policy-engine run build && tsc -p tsconfig.build.json
+
+pnpm exec prettier --check packages/agents tests/unit/agents tests/security/agents supabase/functions/run-verifier tsconfig.base.json
+All matched files use Prettier code style!
+
+git diff --check
+# exit 0
+```
+
+No live credentials, model provider, tool execution, Buzz publication, or database mutation was used. No migration was required, and Tasks 10+ were not started.
+
+The Task 9 code, tests, edge boundary, and evidence documents passed the scoped
+Prettier check. `pnpm-lock.yaml` contains only the required three workspace-link
+entries for `@proofline/agents`; a standalone Prettier check would rewrite
+unrelated lockfile whitespace, so that whole-file rewrite was intentionally not
+included in this bounded Task 9 commit.

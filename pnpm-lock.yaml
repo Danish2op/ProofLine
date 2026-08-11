@@ -59,7 +59,17 @@ importers:
         specifier: workspace:*
         version: link:../../packages/domain
 
-  packages/agents: {}
+  packages/agents:
+    dependencies:
+      '@proofline/canonical':
+        specifier: workspace:*
+        version: link:../canonical
+      '@proofline/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@proofline/policy-engine':
+        specifier: workspace:*
+        version: link:../policy-engine
 
   packages/authz: {}
 

@@ -4,5 +4,19 @@
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
-  "types": "./dist/index.d.ts"
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "pnpm --filter @proofline/canonical run build && pnpm --filter @proofline/domain run build && pnpm --filter @proofline/policy-engine run build && tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@proofline/canonical": "workspace:*",
+    "@proofline/domain": "workspace:*",
+    "@proofline/policy-engine": "workspace:*"
+  }
 }
