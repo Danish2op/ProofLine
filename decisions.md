@@ -309,3 +309,29 @@ row/revision hashes, and same-valued facts covering two claims. Focused GREEN
 passed 3 files / 23 tests; typecheck, agents build, scoped formatting, and diff
 checks passed. No lifecycle transition, migration, live provider, credentials,
 or Task 10+ work was used.
+
+## D-033 — Task 9 revision trust and feedback identity are canonical
+
+Decision: `run-verifier` accepts a loaded revision only after the existing
+domain validator returns an `ActionPassportV1` and `computePassportHash` of that
+validated value equals the stored latest-revision hash and parent passport-row
+hash. The raw payload never supplies trusted evidence facts before validation.
+Feedback replay and deterministic audit identity use a canonical structured hash
+that preserves workspace, passport-row, canonical action, actor, request, and
+idempotency fields instead of delimiter-concatenated text.
+
+Reason: equality between two aliases of one stored hash does not authenticate a
+payload, and delimiter concatenation is not injective for unrestricted client
+strings. Canonical validation plus recomputation binds the payload bytes to both
+database records; structured hashing keeps distinct identity tuples distinct.
+
+Validation: strict RED produced 4 expected failures / 11 tests. Focused GREEN
+passed 3 files / 27 tests; final bounded full Vitest passed 28 files / 290 tests
+with 1 credential-gated skip. Typecheck, workspace build, lint, repository-wide
+Prettier, and diff checks passed. No migration, lifecycle transition, execution,
+UI, live provider, credentials, database mutation, or Task 10+ work was used.
+
+Takeover validation (2026-08-11): the bounded three-file verifier regression
+passed 27 tests with one worker. Typecheck, the `@proofline/agents` package
+build, repository-wide Prettier, and the Git whitespace check each exited 0. No
+unbounded full suite or Task 10+ work was run.

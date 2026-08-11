@@ -4,6 +4,9 @@
  * deterministic agent service, and records feedback as an append-only audit
  * event. It never changes an action lifecycle status.
  */
+import { computePassportHash, hashCanonicalJson } from '@proofline/canonical';
+import { validatePassport, type ActionPassportV1 } from '@proofline/domain';
+
 export interface AuthenticatedCaller {
   userId: string;
   accessToken?: string;
@@ -16,7 +19,7 @@ export interface ServerPassportRecord {
   actionPassportHash: string;
   passportHash: string;
   revisionHash: string;
-  passport: Record<string, unknown>;
+  passport: unknown;
   actor: unknown;
   toolMetadata: unknown;
   workspacePolicy: unknown;
@@ -117,13 +120,22 @@ export function createRunVerifierHandler(
     const loadPassport = dependencies.loadPassport;
     const findFeedback = dependencies.findFeedback;
 
-    const passport = await loadPassport(caller, workspaceId, actionPassportId);
-    if (
-      passport === null ||
-      !validateServerPassport(passport, workspaceId, actionPassportId)
-    ) {
+    const loadedPassport = await loadPassport(
+      caller,
+      workspaceId,
+      actionPassportId,
+    );
+    const validatedPassport =
+      loadedPassport === null
+        ? null
+        : validateServerPassport(loadedPassport, workspaceId, actionPassportId);
+    if (loadedPassport === null || validatedPassport === null) {
       return error('passport_not_found_or_invalid', 404);
     }
+    const passport: ServerPassportRecord & { passport: ActionPassportV1 } = {
+      ...loadedPassport,
+      passport: validatedPassport,
+    };
 
     const requestFingerprint = await sha256Hex(rawBody);
     const lookup: FeedbackLookup = {
@@ -136,7 +148,7 @@ export function createRunVerifierHandler(
       requestFingerprint,
       accessToken: caller.accessToken,
     };
-    const replayKey = `${lookup.workspaceId}:${lookup.actionPassportId}:${lookup.actorId}:${lookup.requestId}:${lookup.idempotencyKey}`;
+    const replayKey = feedbackIdentityHash(lookup);
     const replay = replayResults.get(replayKey);
     if (replay !== undefined) {
       return replay.requestFingerprint === requestFingerprint
@@ -193,7 +205,7 @@ export function defaultRunVerifierDependencies(): RunVerifierDependencies {
 
 function bindVerificationInput(
   body: Record<string, unknown>,
-  passport: ServerPassportRecord,
+  passport: ServerPassportRecord & { passport: ActionPassportV1 },
   requestId: string,
   idempotencyKey: string,
 ): Record<string, unknown> {
@@ -217,21 +229,33 @@ function validateServerPassport(
   passport: ServerPassportRecord,
   workspaceId: string,
   actionPassportId: string,
-): boolean {
-  return (
-    passport.workspaceId === workspaceId &&
-    passport.actionId === actionPassportId &&
-    typeof passport.actionPassportRowId === 'string' &&
-    passport.actionPassportRowId.length > 0 &&
-    typeof passport.revisionHash === 'string' &&
-    typeof passport.actionPassportHash === 'string' &&
-    passport.actionPassportHash === passport.revisionHash &&
-    passport.revisionHash === passport.passportHash &&
-    /^[0-9a-f]{64}$/.test(passport.passportHash) &&
-    isRecord(passport.passport) &&
-    passport.passport.actionId === actionPassportId &&
-    passport.passport.workspaceId === workspaceId
-  );
+): ActionPassportV1 | null {
+  if (
+    passport.workspaceId !== workspaceId ||
+    passport.actionId !== actionPassportId ||
+    typeof passport.actionPassportRowId !== 'string' ||
+    passport.actionPassportRowId.length === 0 ||
+    typeof passport.revisionHash !== 'string' ||
+    typeof passport.actionPassportHash !== 'string' ||
+    !/^[0-9a-f]{64}$/.test(passport.passportHash)
+  ) {
+    return null;
+  }
+  const validated = validatePassport(passport.passport);
+  if (!validated.ok) return null;
+  let computedHash: string;
+  try {
+    computedHash = computePassportHash(validated.value);
+  } catch {
+    return null;
+  }
+  return validated.value.actionId === actionPassportId &&
+    validated.value.workspaceId === workspaceId &&
+    computedHash === passport.revisionHash &&
+    computedHash === passport.actionPassportHash &&
+    computedHash === passport.passportHash
+    ? validated.value
+    : null;
 }
 
 async function authenticateFromSupabase(
@@ -303,12 +327,20 @@ async function loadPassportFromSupabase(
   );
   if (!Array.isArray(revision) || !isRecord(revision[0])) return null;
   const payload = revision[0].payload_json;
-  return isRecord(payload) &&
-    typeof actionRow.action_id === 'string' &&
+  const validatedPayload = validatePassport(payload);
+  if (!validatedPayload.ok) return null;
+  let computedHash: string;
+  try {
+    computedHash = computePassportHash(validatedPayload.value);
+  } catch {
+    return null;
+  }
+  return typeof actionRow.action_id === 'string' &&
     typeof actionRow.workspace_id === 'string' &&
     typeof actionRow.passport_hash === 'string' &&
     typeof revision[0].passport_hash === 'string' &&
-    isRecord(payload)
+    computedHash === revision[0].passport_hash &&
+    computedHash === actionRow.passport_hash
     ? {
         actionPassportRowId: rowId,
         actionId: actionRow.action_id,
@@ -316,13 +348,11 @@ async function loadPassportFromSupabase(
         actionPassportHash: actionRow.passport_hash,
         passportHash: revision[0].passport_hash,
         revisionHash: revision[0].passport_hash,
-        passport: payload,
-        actor: payload.actor,
-        toolMetadata: payload.toolMetadata,
-        workspacePolicy: payload.workspacePolicy,
-        trustedEvidenceFacts: Array.isArray(payload.trustedEvidenceFacts)
-          ? payload.trustedEvidenceFacts
-          : [],
+        passport: validatedPayload.value,
+        actor: undefined,
+        toolMetadata: undefined,
+        workspacePolicy: undefined,
+        trustedEvidenceFacts: [],
       }
     : null;
 }
@@ -381,8 +411,15 @@ async function captureFeedbackToAudit(
   const serviceKey = env('SUPABASE_SERVICE_ROLE_KEY');
   if (!url || !serviceKey || !isUuid(feedback.actionPassportId))
     throw new Error('configuration_missing');
-  const eventId = await uuidFrom(
-    `${feedback.workspaceId}:${feedback.actionPassportId}:${feedback.actionId}:${feedback.actorId}:${feedback.requestId}:${feedback.idempotencyKey}`,
+  const eventId = uuidFromHash(
+    feedbackIdentityHash({
+      workspaceId: feedback.workspaceId,
+      actionPassportId: feedback.actionPassportId,
+      actionId: feedback.actionId,
+      actorId: feedback.actorId,
+      requestId: feedback.requestId,
+      idempotencyKey: feedback.idempotencyKey,
+    }),
   );
   const response = await fetch(`${url}/rest/v1/audit_events`, {
     method: 'POST',
@@ -454,8 +491,28 @@ async function sha256Hex(value: string): Promise<string> {
     .join('');
 }
 
-async function uuidFrom(value: string): Promise<string> {
-  const hash = await sha256Hex(value);
+function feedbackIdentityHash(
+  identity: Pick<
+    FeedbackLookup,
+    | 'workspaceId'
+    | 'actionPassportId'
+    | 'actionId'
+    | 'actorId'
+    | 'requestId'
+    | 'idempotencyKey'
+  >,
+): string {
+  return hashCanonicalJson({
+    workspaceId: identity.workspaceId,
+    actionPassportId: identity.actionPassportId,
+    actionId: identity.actionId,
+    actorId: identity.actorId,
+    requestId: identity.requestId,
+    idempotencyKey: identity.idempotencyKey,
+  });
+}
+
+function uuidFromHash(hash: string): string {
   return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-5${hash.slice(13, 16)}-${((Number.parseInt(hash.slice(16, 18), 16) & 0x3f) | 0x80).toString(16).padStart(2, '0')}${hash.slice(18, 20)}-${hash.slice(20, 32)}`;
 }
 

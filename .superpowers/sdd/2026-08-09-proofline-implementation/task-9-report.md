@@ -118,3 +118,56 @@ Fresh bounded verification also ran `pnpm typecheck`,
 `pnpm --filter @proofline/agents run build`, scoped Prettier, and `git diff
 --check`. No full suite, live provider, credentials, Buzz publication,
 database mutation, migration, lifecycle mutation, or Task 10+ work was run.
+
+## Fix round 3 — canonical revision trust and feedback identity
+
+- `run-verifier` validates the server-loaded revision payload with
+  `validatePassport`, replaces the raw value with the validated
+  `ActionPassportV1`, recomputes `computePassportHash`, and requires the result
+  to equal both the revision hash and parent action-passport hash before calling
+  the verifier. Malformed, arbitrary-hash, and valid-shaped tampered payloads
+  fail closed.
+- The production Supabase loader performs the same validation and hash binding
+  before returning its record. It no longer reads `trustedEvidenceFacts` from
+  unvalidated revision JSON; no unvalidated fact reaches verification.
+- In-memory feedback replay and deterministic audit UUID generation share a
+  canonical structured identity hash. It retains workspace, passport-row,
+  canonical action, actor, request, and idempotency scope while making embedded
+  delimiters unambiguous.
+
+Strict TDD evidence:
+
+- Test-fixture normalization to valid literal-hash `ActionPassportV1` records
+  preserved the focused baseline at 1 file / 7 tests.
+- RED: `pnpm vitest run tests/unit/agents/run-verifier-boundary.test.ts
+  --reporter=verbose --maxWorkers=1` produced 4 expected failures / 11 tests:
+  malformed arbitrary-hash payload returned 200, tampered payload returned 200,
+  replay tuples collided with 409, and audit tuples produced one UUID.
+- GREEN: `pnpm vitest run tests/unit/agents/run-verifier-boundary.test.ts
+  tests/unit/agents/verifier.test.ts tests/security/agents/untrusted-content.test.ts
+  --maxWorkers=1` passed 3 files / 27 tests.
+
+Bounded verification:
+
+- The first one-worker full run passed 26 files but reproduced the two known
+  5-second package-build timeouts. The canonical and worker probes then passed
+  alone (2 files / 2 tests), and two fresh full reruns each passed 28 files / 290
+  tests with 1 credential-gated skip.
+- `pnpm typecheck` initially caught a local generic-record narrowing issue in
+  the new audit helper call; after explicit validated-field projection, the
+  fresh typecheck passed.
+- `pnpm build`, `pnpm lint`, and `pnpm format:check` passed.
+
+No migration, lifecycle mutation, tool execution, UI work, live provider,
+credentials, Buzz publication, database mutation, or Task 10+ work was used.
+
+### Takeover verification (2026-08-11)
+
+- `pnpm vitest run tests/unit/agents/run-verifier-boundary.test.ts
+  tests/unit/agents/verifier.test.ts tests/security/agents/untrusted-content.test.ts
+  --maxWorkers=1 --reporter=verbose` passed 3 files / 27 tests.
+- `pnpm typecheck`, `pnpm --filter @proofline/agents run build`, repository-wide
+  `pnpm format:check`, and `git diff --check` each exited 0.
+
+No unbounded full suite, migration, lifecycle mutation, live provider,
+credentials, Buzz publication, database action, or Task 10+ work was run.

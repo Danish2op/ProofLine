@@ -228,3 +228,32 @@ row/revision mismatch was accepted, and a same-valued fact could cover two
 claims. Focused GREEN passed 3 files / 23 tests. Typecheck, the agents build,
 scoped Prettier, and diff checks passed. No lifecycle mutation, migration, live
 provider, credentials, Buzz, database action, or Task 10+ work was used.
+
+## Task 9 fix round 3 status (2026-08-11)
+
+The `run-verifier` boundary now validates each loaded revision payload with the
+existing `ActionPassportV1` domain validator, recomputes its canonical
+`computePassportHash`, and requires that hash to match both the latest revision
+hash and parent passport-row hash. Only the validated passport is bound into
+verification. The Supabase loader no longer derives trusted evidence facts from
+raw revision JSON. Feedback replay and audit UUIDs now use a canonical
+structured hash over workspace, passport row, canonical action, actor, request,
+and idempotency identity, so delimiter-containing client IDs cannot alias.
+
+Strict RED produced 4 expected failures / 11 tests for malformed arbitrary-hash
+payloads, valid-shaped tampering, replay-key delimiter collision, and audit-ID
+delimiter collision. Focused GREEN passed 3 files / 27 tests. A first bounded
+full run reproduced the known 5-second canonical/worker package-build timing
+flake; both probes passed alone, and two subsequent one-worker full runs each
+passed 28 files / 290 tests with 1 credential-gated skip. Typecheck, workspace
+build, lint, and repository-wide formatting passed. No migration, lifecycle
+mutation, live provider, credentials, Buzz publication, database mutation,
+execution/UI work, or Task 10+ work was used.
+
+## Task 9 fix round 3 takeover verification (2026-08-11)
+
+A fresh bounded Task 9 verifier run passed 3 files / 27 tests with one worker.
+`pnpm typecheck`, `pnpm --filter @proofline/agents run build`, repository-wide
+`pnpm format:check`, and `git diff --check` each exited 0. No unbounded full
+suite, migration, lifecycle mutation, live provider, credentials, Buzz
+publication, database action, execution/UI work, or Task 10+ work was run.
