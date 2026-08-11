@@ -4,9 +4,7 @@ export interface AuthenticatedCaller {
 }
 
 export type LifecyclePermission =
-  | 'approve_action'
-  | 'revoke_action'
-  | 'create_action';
+  'approve_action' | 'revoke_action' | 'create_action';
 
 export interface LifecycleBoundaryDependencies {
   authenticate(request: Request): Promise<AuthenticatedCaller | null>;
@@ -83,9 +81,10 @@ export async function transitionRpc(
       { error: { code: 'configuration_missing', retryable: false } },
       { status: 503 },
     );
-  const rpcName = input.source_target_status === 'APPROVED'
-    ? 'approve_verified_action'
-    : 'transition_action';
+  const rpcName =
+    input.source_target_status === 'APPROVED'
+      ? 'approve_verified_action_v2'
+      : 'transition_action';
   return fetch(`${url}/rest/v1/rpc/${rpcName}`, {
     method: 'POST',
     headers: {

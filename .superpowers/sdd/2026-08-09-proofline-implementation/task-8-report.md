@@ -57,3 +57,23 @@ Strict TDD evidence:
 - `pnpm exec prettier --check pnpm-lock.yaml` — exit 0 after formatting.
 
 No full suite, root build, lint, repository-wide format check, or live Supabase migration/RPC execution was run in this bounded round.
+
+## Fix round 3 evidence (2026-08-11)
+
+Reviewer findings addressed:
+
+- Approval parsing now follows the verified Buzz adapter contract: kind 9 reads `proofline.decision` from the standard Nostr event `content` JSON, and kind 7 accepts the canonical reaction symbols. Invalid JSON, wrong content shape, unsupported decisions, invalid expiry, and malformed observations fail closed.
+- `DatabaseProvenanceWriter.recordAndApply` is observation-only and calls `record_verified_buzz_approval_observation`; it no longer reaches `apply_verified_buzz_approval`. Migration 0015 stores the observation timestamps, preserves Task 7 provenance recording, routes application through `approve_verified_action_v2`, and revokes the old service-role approval grant.
+- The migration contract tests cover canonical kind 9/kind 7 parsing, malformed observations, and legacy RPC retirement.
+
+Strict TDD and bounded verification:
+
+- RED: `pnpm vitest run tests/unit/buzz-adapter/provenance.test.ts tests/integration/database/constraints.test.ts` — 4 expected failures / 21 tests.
+- Focused GREEN: the same command after implementation — 2 files passed, 21 tests passed.
+- Final focused tests: `pnpm vitest run tests/unit/buzz-adapter/provenance.test.ts tests/unit/buzz-adapter/approval-parser.test.ts tests/integration/database/constraints.test.ts tests/integration/lifecycle/edge-boundaries.test.ts tests/unit/lifecycle/state-machine.test.ts tests/integration/lifecycle/race-conditions.test.ts` — 6 files passed, 59 tests passed.
+- `pnpm --filter @proofline/buzz-adapter run build` — exit 0.
+- `pnpm typecheck` — exit 0.
+- Scoped ESLint invocation exited 0 with six existing “file ignored because no matching configuration was supplied” warnings.
+- Prettier check passed for all changed formatter-supported Task 8 TypeScript/test files after formatting; SQL migrations were validated by migration contract tests and `git diff --check` because the configured Prettier parser does not support SQL.
+
+No full suite, root lint, live Supabase migration/RPC execution, or unbounded command was run.

@@ -236,7 +236,9 @@ describe('legacy Buzz and create-action boundaries', () => {
   });
 
   it('authenticates create-action before service-role insert and rejects cross-workspace membership', async () => {
-    const insert = vi.fn(async () => Response.json({ ok: true }, { status: 201 }));
+    const insert = vi.fn(async () =>
+      Response.json({ ok: true }, { status: 201 }),
+    );
     const authorize = vi.fn(async () => false);
     const handler = createModule.createCreateActionHandler(
       createDependencies({ authorize, insert }),
@@ -249,7 +251,11 @@ describe('legacy Buzz and create-action boundaries', () => {
     );
 
     expect(response.status).toBe(403);
-    expect(authorize).toHaveBeenCalledWith(caller, workspaceId, 'create_action');
+    expect(authorize).toHaveBeenCalledWith(
+      caller,
+      workspaceId,
+      'create_action',
+    );
     expect(insert).not.toHaveBeenCalled();
   });
 });

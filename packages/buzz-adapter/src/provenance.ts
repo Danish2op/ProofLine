@@ -64,23 +64,53 @@ export class DatabaseProvenanceWriter {
     relayUrl: string;
   }): Promise<string> {
     const rawEvent = verifiedRawEvent(input.event);
-    const verification = verifyEvent(rawEvent);
-    if (
-      'code' in verification ||
-      verification.rawHash !== input.event.rawHash
-    ) {
+    if (approvalDecision(rawEvent) !== 'approved') {
       throw new Error(
-        'Provenance RPC requires a cryptographically verified Buzz event.',
+        'Verified Buzz event has no supported approval decision.',
       );
     }
+    const approvedAt = Date.parse(input.approvedAt);
+    const expiresAt = Date.parse(input.expiresAt);
+    if (
+      !Number.isFinite(approvedAt) ||
+      !Number.isFinite(expiresAt) ||
+      expiresAt <= approvedAt
+    ) {
+      throw new Error('Verified Buzz approval decision has invalid expiry.');
+    }
 
-    return this.rpc.call('apply_verified_buzz_approval', {
+    return this.rpc.call('record_verified_buzz_approval_observation', {
       target_workspace_id: input.workspaceId,
       source_approved_at: input.approvedAt,
       source_expires_at: input.expiresAt,
       source_relay_url: input.relayUrl,
       source_raw_event_json: rawEvent,
     });
+  }
+}
+
+function approvalDecision(
+  event: ReturnType<typeof verifiedRawEvent>,
+): 'approved' | 'rejected' | 'request_changes' | null {
+  if (event.kind === 7) {
+    if (['+', '✅', '👍'].includes(event.content)) return 'approved';
+    if (['-', '❌', '👎'].includes(event.content)) return 'rejected';
+    return null;
+  }
+  if (event.kind !== 9) return null;
+  try {
+    const parsed: unknown = JSON.parse(event.content);
+    if (typeof parsed !== 'object' || parsed === null) return null;
+    const proofline = (parsed as Record<string, unknown>).proofline;
+    if (typeof proofline !== 'object' || proofline === null) return null;
+    const decision = (proofline as Record<string, unknown>).decision;
+    return decision === 'approved' ||
+      decision === 'rejected' ||
+      decision === 'request_changes'
+      ? decision
+      : null;
+  } catch {
+    return null;
   }
 }
 

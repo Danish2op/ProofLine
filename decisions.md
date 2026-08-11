@@ -199,3 +199,11 @@ Decision: the retired Buzz processor is fail-closed; approval is admitted only b
 Reason: a valid Buzz event or service-role endpoint must never be reusable as authorization for another action or workspace, and audit uniqueness must not depend on silent conflict suppression.
 
 Validation: RED recorded 5 failures / 21 tests. Final bounded regression passed 5 files / 44 tests; `pnpm typecheck` and `pnpm exec prettier --check pnpm-lock.yaml` exited 0. No live SQL execution was available or attempted.
+
+## D-025 — Task 8 fix round 3 observation/application split
+
+Decision: Buzz adapter provenance records verified approval observations only; the server parses the standard Nostr content shape and kind 7 reactions, stores the verified observation/timestamps, and only the authenticated/versioned provenance-aware lifecycle RPC may apply approval. Migration 0015 revokes the legacy Task 7 service-role approval mutation grant.
+
+Reason: provenance recording and lifecycle mutation have different trust boundaries. A verified event must be durably observed without allowing the adapter to bypass Task 8 version checks, workspace/action binding, reviewer authorization, or lifecycle audit receipts.
+
+Validation: RED recorded 4 failures / 21 tests. Final focused tests passed 6 files / 59 tests; Buzz adapter build and `pnpm typecheck` exited 0. Scoped ESLint had six configuration-ignore warnings; formatter-supported files passed Prettier; no live SQL execution was attempted.

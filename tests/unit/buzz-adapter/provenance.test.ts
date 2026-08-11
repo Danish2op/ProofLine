@@ -91,7 +91,7 @@ describe('Buzz event provenance', () => {
     expect(isRetryableBuzzFailure('policy_denied')).toBe(false);
   });
 
-  it('does not forward a caller-supplied passport when applying an approval', async () => {
+  it('records an approval observation without invoking the lifecycle-bypassing RPC', async () => {
     const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
     const writer = new DatabaseProvenanceWriter({
       async call(name, args) {
@@ -114,7 +114,7 @@ describe('Buzz event provenance', () => {
 
     expect(calls).toEqual([
       {
-        name: 'apply_verified_buzz_approval',
+        name: 'record_verified_buzz_approval_observation',
         args: {
           target_workspace_id: 'f2e0b809-2d1d-43cd-85c5-99522d4f0611',
           source_approved_at: '2026-08-10T00:00:00.000Z',
@@ -132,6 +132,64 @@ describe('Buzz event provenance', () => {
         },
       },
     ]);
+  });
+
+  it('fails closed for a signed kind-9 event with the wrong content shape', async () => {
+    const calls: string[] = [];
+    const writer = new DatabaseProvenanceWriter({
+      async call(name) {
+        calls.push(name);
+        return 'stored';
+      },
+    });
+    const event = signedVerifiedEvent({
+      kind: 9,
+      tags: [['e', 'c'.repeat(64)]],
+      content: '{"decision":"approved"}',
+    });
+
+    await expect(
+      writer.recordAndApply({
+        event,
+        workspaceId: 'f2e0b809-2d1d-43cd-85c5-99522d4f0611',
+        approvedAt: '2026-08-10T00:00:00.000Z',
+        expiresAt: '2026-08-10T01:00:00.000Z',
+        relayUrl: 'wss://relay.example.test/',
+      }),
+    ).rejects.toThrow('approval decision');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('records the approval expiry for a canonical kind-9 decision payload', async () => {
+    const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+    const writer = new DatabaseProvenanceWriter({
+      async call(name, args) {
+        calls.push({ name, args });
+        return 'stored';
+      },
+    });
+    const event = signedVerifiedEvent({
+      kind: 9,
+      tags: [['e', 'c'.repeat(64)]],
+      content: '{"proofline":{"decision":"approved"}}',
+    });
+
+    await expect(
+      writer.recordAndApply({
+        event,
+        workspaceId: 'f2e0b809-2d1d-43cd-85c5-99522d4f0611',
+        approvedAt: '2026-08-10T00:00:00.000Z',
+        expiresAt: '2026-08-10T01:00:00.000Z',
+        relayUrl: 'wss://relay.example.test/',
+      }),
+    ).resolves.toBe('stored');
+    expect(calls[0]).toMatchObject({
+      name: 'record_verified_buzz_approval_observation',
+      args: {
+        source_approved_at: '2026-08-10T00:00:00.000Z',
+        source_expires_at: '2026-08-10T01:00:00.000Z',
+      },
+    });
   });
 
   it('rejects a caller-labeled verified event whose raw signature cannot verify', async () => {
@@ -162,13 +220,19 @@ describe('Buzz event provenance', () => {
   });
 });
 
-function signedVerifiedEvent(): VerifiedBuzzEvent {
+function signedVerifiedEvent(
+  overrides: Partial<{
+    kind: number;
+    tags: string[][];
+    content: string;
+  }> = {},
+): VerifiedBuzzEvent {
   const privateKey = '4'.repeat(64);
   const pubkey = bytesToHex(schnorr.getPublicKey(hexToBytes(privateKey)));
   const createdAt = 1_700_000_000;
-  const kind = 7;
-  const tags = [['e', 'c'.repeat(64)]];
-  const content = '+';
+  const kind = overrides.kind ?? 7;
+  const tags = overrides.tags ?? [['e', 'c'.repeat(64)]];
+  const content = overrides.content ?? '+';
   const id = createHash('sha256')
     .update(JSON.stringify([0, pubkey, createdAt, kind, tags, content]))
     .digest('hex');

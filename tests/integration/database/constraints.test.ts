@@ -213,7 +213,9 @@ describe('Proofline database constraints', () => {
   it('hardens approval against caller provenance substitution and audit collisions', () => {
     const lifecycle = allMigrations();
 
-    expect(lifecycle).toContain('create or replace function public.approve_verified_action(');
+    expect(lifecycle).toContain(
+      'create or replace function public.approve_verified_action(',
+    );
     expect(lifecycle).toContain('buzz_event_provenance');
     expect(lifecycle).toContain('signature_verified');
     expect(lifecycle).toContain('buzz_reviewer_identities');
@@ -222,6 +224,19 @@ describe('Proofline database constraints', () => {
     expect(lifecycle).toContain('approval_provenance_mismatch');
     expect(lifecycle).toContain('audit id collision');
     expect(lifecycle).toContain('source_expected_version is null');
+  });
+
+  it('parses standard Nostr approval content and retires the legacy approval RPC', () => {
+    const lifecycle = allMigrations();
+
+    expect(lifecycle).toContain("stored_raw_event_json->>'content'");
+    expect(lifecycle).toContain("'{proofline,decision}'");
+    expect(lifecycle).toContain('stored_event_kind = 7');
+    expect(lifecycle).toContain('record_verified_buzz_approval_observation');
+    expect(lifecycle).toContain(
+      'revoke all on function public.apply_verified_buzz_approval',
+    );
+    expect(lifecycle).toContain('approval_observation_malformed');
   });
 
   it('keeps seed data visibly synthetic and free of credentials', () => {

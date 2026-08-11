@@ -126,3 +126,9 @@ Focused verification: 3 files and 21 tests passed; `pnpm typecheck` exited 0. No
 The five fix-round findings are addressed. The legacy Buzz processor now fails closed; approval requires a complete command contract and server-stored verified provenance bound to the exact workspace/action/proposal and active reviewer; create-action authenticates before service-role insertion; audit IDs are tenant/action scoped with collision detection; and `pnpm-lock.yaml` is formatted.
 
 Evidence: RED recorded 5 failures / 21 tests; final bounded regression passed 5 files / 44 tests in 4.11s, `pnpm typecheck` exited 0, and the lockfile-only Prettier check exited 0. No full suite or live database probe was run.
+
+## Task 8 fix round 3 status (2026-08-11)
+
+Verified Buzz approval parsing now matches the actual Nostr event shape: kind 9 decision JSON is read from `content`, kind 7 reactions are supported, and malformed/wrong-shape approval observations fail closed. The Buzz adapter records observations only; application uses the versioned provenance-aware lifecycle RPC, while migration 0015 revokes the legacy service-role approval grant and stores verified approval timestamps.
+
+Evidence: RED recorded 4 failures / 21 tests; final focused tests passed 6 files / 59 tests; Buzz adapter build and typecheck exited 0; scoped ESLint exited 0 with six configuration-ignore warnings; formatter-supported changed files passed Prettier. No full suite or live database probe was run.
