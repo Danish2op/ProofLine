@@ -5,10 +5,13 @@ import {
   type ExecutionInput,
   type ExecutionReceipt,
 } from '@proofline/execution';
+import {
+  authenticateCaller,
+  authorizeCaller,
+  type AuthenticatedCaller,
+} from '../_shared/lifecycle-boundary.ts';
 
-export interface ExecuteCaller {
-  userId: string;
-}
+export type ExecuteCaller = AuthenticatedCaller;
 export interface ApprovedExecution {
   input: ExecutionInput;
   action: { passport: ExecutionInput['passport']; passportHash: string };
@@ -31,7 +34,7 @@ export interface ExecuteDependencies {
 }
 
 export function createExecuteActionHandler(
-  dependencies: ExecuteDependencies,
+  dependencies: ExecuteDependencies = defaultExecuteDependencies(),
 ): (request: Request) => Promise<Response> {
   const store = new IdempotencyStore();
   const gate = new ExecutionGate();
@@ -98,6 +101,21 @@ export function createExecuteActionHandler(
   };
 }
 
+function defaultExecuteDependencies(): ExecuteDependencies {
+  return {
+    authenticate: authenticateCaller,
+    authorize: (caller, workspaceId) =>
+      authorizeCaller(caller, workspaceId, 'approve_action'),
+    loadApprovedAction: async () => null,
+    execute: async () => {
+      throw new Error('execution_provider_not_configured');
+    },
+    capture: async () => {
+      throw new Error('receipt_persistence_not_configured');
+    },
+  };
+}
+
 function error(code: string, status: number): Response {
   return Response.json(
     { error: { code, retryable: status >= 500 } },
@@ -114,3 +132,10 @@ async function readBody(request: Request): Promise<unknown> {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
+
+const deno = (
+  globalThis as {
+    Deno?: { serve(handler: (request: Request) => Promise<Response>): void };
+  }
+).Deno;
+if (deno) deno.serve(createExecuteActionHandler());

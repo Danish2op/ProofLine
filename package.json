@@ -14,9 +14,10 @@
     "db:verify": "node --experimental-strip-types scripts/verify-supabase-db.ts",
     "buzz:smoke": "node --experimental-strip-types scripts/buzz-smoke.ts",
     "build": "pnpm -r --if-present run build",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check . --ignore-unknown"
   },
   "devDependencies": {
+    "@proofline/agents": "workspace:*",
     "@noble/curves": "2.0.1",
     "@types/node": "^22.15.0",
     "@types/pg": "^8.21.0",

@@ -391,3 +391,18 @@ framework detector.
 
 Validation: production Vercel build completed and public `/` and `/demo` probes
 returned HTTP 200 with expected content. No runtime secrets are configured.
+
+## D-038 — Deterministic agent execution is the default hosted path
+
+Decision: `run-verifier` invokes the built `VerifierAgent` in-process by default;
+the previous remote `PROOFLINE_AGENT_SERVICE_URL` path remains available only as
+legacy code and is not required for the hosted MVP.
+
+Reason: a separate agent service would violate the zero-mandatory-cost boundary
+and make the public function unusable without additional deployment credentials.
+The deterministic verifier already performs the security-critical checks and
+is independently covered by the test suite.
+
+Validation: RED failed without the service URL; GREEN passed the new fallback
+test, the full suite passed 33 files / 306 tests / 1 skipped, and Supabase
+accepted the redeployed function bundle.

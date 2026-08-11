@@ -1,0 +1,10 @@
+{
+  "imports": {
+    "@proofline/canonical": "../../packages/canonical/dist/index.js",
+    "@proofline/domain": "../../packages/domain/dist/index.js",
+    "@proofline/policy-engine": "../../packages/policy-engine/dist/index.js",
+    "@proofline/execution": "../../packages/execution/dist/index.js",
+    "@proofline/agents": "../../packages/agents/dist/index.js",
+    "zod": "npm:zod@4.4.3"
+  }
+}

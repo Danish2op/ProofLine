@@ -28,6 +28,14 @@ describe('run-verifier boundary', () => {
     expect(response.status).toBe(405);
   });
 
+  it('has a deterministic verifier fallback without a second hosted agent service', async () => {
+    const dependencies = defaultRunVerifierDependencies();
+    const result = await dependencies.verify({ malformed: true });
+    expect(result.feedback).toEqual(
+      expect.objectContaining({ agent: 'verifier' }),
+    );
+  });
+
   it('requires authorization before verification or feedback persistence', async () => {
     const verify = vi.fn();
     const captureFeedback = vi.fn();

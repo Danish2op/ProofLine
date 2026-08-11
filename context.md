@@ -303,3 +303,17 @@ pnpm install plus `pnpm --filter @proofline/web run next-build`. Production URL:
 returned 200 for `/` and `/demo`; content checks found the landing headline and
 the explicit `OFFLINE TECHNICAL REPLAY` label. This is a public offline replay,
 not a live Supabase/Buzz execution environment.
+
+## Supabase live boundary (2026-08-11)
+
+The linked project `tlaecrrimbpumhqmxltk` accepted migrations 0007–0017 and
+reports local/remote parity through 0017. `run-verifier`, `execute-action`,
+`create-action`, `approve-action`, `revoke-action`, and `process-buzz-event` are
+ACTIVE with JWT verification enabled. The Deno import map resolves built
+workspace artifacts and `zod`; the verifier uses the deterministic in-process
+`VerifierAgent` fallback, so no separate agent-service secret is required.
+Synthetic seed data was re-applied with structured tool metadata and policy
+document fields. Anonymous POST probes to the live verifier/executor/create
+endpoints returned 401. A valid authenticated end-to-end action still requires
+an actual Supabase user/member, stored action/revision/evidence/proposal rows,
+and Buzz provenance; no such live identity or event was fabricated.

@@ -6,6 +6,7 @@
  */
 import { computePassportHash, hashCanonicalJson } from '@proofline/canonical';
 import { validatePassport, type ActionPassportV1 } from '@proofline/domain';
+import { VerifierAgent } from '@proofline/agents';
 
 export interface AuthenticatedCaller {
   userId: string;
@@ -199,7 +200,7 @@ export function defaultRunVerifierDependencies(): RunVerifierDependencies {
     authorize: authorizeFromSupabase,
     loadPassport: loadPassportFromSupabase,
     findFeedback: findFeedbackFromSupabase,
-    verify: verifyWithLocalAgentService,
+    verify: verifyWithDeterministicAgent,
     captureFeedback: captureFeedbackToAudit,
   };
 }
@@ -657,6 +658,14 @@ async function verifyWithLocalAgentService(
   if (!isRecord(result) || !('feedback' in result))
     throw new Error('malformed_verifier_result');
   return result as { feedback: unknown; [key: string]: unknown };
+}
+
+const deterministicVerifier = new VerifierAgent();
+
+async function verifyWithDeterministicAgent(
+  input: unknown,
+): Promise<{ feedback: unknown; [key: string]: unknown }> {
+  return { ...(await deterministicVerifier.verify(input as never)) };
 }
 
 async function getJson(

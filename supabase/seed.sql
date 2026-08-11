@@ -20,19 +20,21 @@ values (
   '11111111-1111-4111-8111-111111111111',
   'sandbox.deploy',
   repeat('c', 64),
-  '{"synthetic":true,"target":"sandbox://synthetic-demo.example.invalid/staging"}'::jsonb
+  '{"readOnly":false,"destructive":false,"idempotent":true,"externalSideEffect":false,"dataClasses":["internal"],"declaredScopes":["sandbox:deploy"]}'::jsonb
 )
-on conflict (workspace_id, definition_hash) do nothing;
+on conflict (workspace_id, definition_hash) do update
+set metadata_json = excluded.metadata_json;
 
 insert into public.policies (id, workspace_id, version, document_json, snapshot_hash)
 values (
   '44444444-4444-4444-8444-444444444444',
   '11111111-1111-4111-8111-111111111111',
   'synthetic-mvp-1',
-  '{"label":"synthetic demo policy","approval_required":true}'::jsonb,
+  '{"label":"synthetic demo policy","trustedToolDefinitionHashes":["cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"],"approvalRoles":["owner","security_reviewer"]}'::jsonb,
   repeat('d', 64)
 )
-on conflict (workspace_id, version) do nothing;
+on conflict (workspace_id, version) do update
+set document_json = excluded.document_json;
 
 insert into public.demo_runs (id, workspace_id, label, reset_key, state)
 values (
