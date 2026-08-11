@@ -292,3 +292,14 @@ proposal, verification, Buzz-review, approval, drift-block, corrected approval,
 and sandbox execution states. `/` and `/demo` are static Next pages and the demo
 is explicitly labelled offline technical replay; no live Buzz, Supabase, or
 agent credentials are claimed. Synthetic fixtures include adversarial evidence.
+
+## Public deployment (2026-08-11)
+
+Vercel project `proofline` is linked and production deployment succeeded after
+making the root workspace advertise Next and adding `vercel.json` with frozen
+pnpm install plus `pnpm --filter @proofline/web run next-build`. Production URL:
+`https://proofline-psi.vercel.app/` (deployment URL
+`https://proofline-596zdkzor-danishs-projects-64849313.vercel.app`). HTTP probes
+returned 200 for `/` and `/demo`; content checks found the landing headline and
+the explicit `OFFLINE TECHNICAL REPLAY` label. This is a public offline replay,
+not a live Supabase/Buzz execution environment.

@@ -380,3 +380,14 @@ it does not imply that a live Buzz event, Supabase write, or external agent ran.
 Reason: the product must remain demonstrable without paid APIs, live secrets,
 or unreliable infrastructure. Live integrations can be added behind the same
 server-owned boundaries after the replay has been independently validated.
+
+## D-037 — Vercel deploys the monorepo root with an explicit Next contract
+
+Decision: keep the web package's normal `build` script as the fast TypeScript
+package build used by existing package-boundary tests, and expose `next-build`
+for Vercel. The root `vercel.json` pins frozen pnpm installation and invokes
+that filtered Next build; the root dev dependencies advertise Next to Vercel's
+framework detector.
+
+Validation: production Vercel build completed and public `/` and `/demo` probes
+returned HTTP 200 with expected content. No runtime secrets are configured.
