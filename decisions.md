@@ -162,3 +162,9 @@ Validation: the same bounded command exercised the executable probe helper's
 hash-bound envelope and wrong-result assertion; `pnpm typecheck` exited 0.
 `pnpm db:verify` exited 0 with the expected missing-`SUPABASE_DB_URL` skip, so
 no live database claim is made.
+
+## D-021 — Task 7 approved
+
+Decision: advance to Task 8 after independent approval of commit `0c9f1b1`.
+
+Reason: duplicate publication promises settle deterministically, the migration-0011 probe is corrected, and full regression evidence is green (216 passed, one explicit credential-gated skip).

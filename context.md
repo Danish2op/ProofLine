@@ -34,8 +34,8 @@ Completed and reviewed:
 5. Supabase schema/RLS/audit; migrations through `0007` applied to linked project.
 6. Auth/authz and middleware; final scoped review approved.
 
-Task 7 post-review remediation is implemented but **not yet approved** by a
-fresh independent scoped review.
+Task 7 post-review remediation is implemented and independently approved on
+commit `0c9f1b1`.
 Its fresh bounded verification on 2026-08-11 passed: the relay/probe Vitest
 command reported 16 passed and 1 credential-gated relay skip; `pnpm typecheck`
 exited 0. `pnpm db:verify` exited 0 with the expected missing-
@@ -44,7 +44,7 @@ Base implementation commits were `699b295`, `b86879c`; prior fix commits are
 `71a59a6`, `fab1b30`, `d59e5d2`, and `bc7573e`. The round 5 implementation is
 the current scoped commit.
 
-Task 7 review findings that must be fixed before Task 8:
+Task 7 review findings that were fixed before approval:
 
 1. No complete proposal provenance writer path: publishing returns a relay ref but does not persist the proposal row, while approval RPC requires it.
 2. Approval RPC can transition a caller-supplied passport different from the passport bound to proposal provenance. (Addressed in fix round 2.)
@@ -95,9 +95,9 @@ Earlier findings already addressed in `71a59a6` but must not regress: DB-backed 
 
 ## Next exact action
 
-Obtain a fresh independent scoped review of the two Task 7 remediation fixes.
-Do not advance to Task 8 or claim production readiness until that review
-approves the bounded remediation.
+Start Task 8 lifecycle/state-machine implementation. Keep Task 7 stable unless
+a regression is proven; do not claim overall production readiness until Tasks
+8–18 are complete and reviewed.
 
 ## Do not do
 
