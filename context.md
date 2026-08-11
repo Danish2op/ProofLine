@@ -34,7 +34,7 @@ Completed and reviewed:
 5. Supabase schema/RLS/audit; migrations through `0007` applied to linked project.
 6. Auth/authz and middleware; final scoped review approved.
 
-Task 7 fix round 5 is implemented pending the final independent scoped review.
+Task 7 fix round 5 is implemented but **not approved** after final independent review.
 Base implementation commits were `699b295`, `b86879c`; prior fix commits are
 `71a59a6`, `fab1b30`, `d59e5d2`, and `bc7573e`. The round 5 implementation is
 the current scoped commit.
@@ -58,6 +58,12 @@ Earlier findings already addressed in `71a59a6` but must not regress: DB-backed 
    reconnected socket or reject its queue; auth work must validate a connection
    generation/socket identity before mutating shared state. Addressed in fix
    round 5 with generation- and socket-scoped continuations; final review pending.
+9. Duplicate publication calls using the same event ID overwrite the pending
+   entry, allowing the first promise to remain pending after the second resolves.
+10. `scripts/verify-supabase-db.ts` is stale for migration 0011: it does not
+    retain/use the second passport hash and omits `passportHash` from the second
+    proposal, so the live request_changes probe would reject and then assert the
+    wrong result.
 
 ## Credentials and external systems
 
@@ -81,8 +87,10 @@ Earlier findings already addressed in `71a59a6` but must not regress: DB-backed 
 
 ## Next exact action
 
-Obtain the final independent scoped review for Task 7 fix round 5. Do not begin
-Task 8 until that review approves the Task 7 adapter.
+Task 7 is blocked pending controlled repair of duplicate-publication idempotency
+and the live Supabase probe. The five allowed TDD review rounds are exhausted;
+do not advance to Task 8 or claim production readiness until both defects are
+fixed and independently reviewed.
 
 ## Do not do
 

@@ -117,3 +117,9 @@ resolved and rejected stale signer. Socket B receives no stale `AUTH`, its
 publication remains pending until B's own auth probe completes, and it then
 publishes successfully. The focused Task 7 suite passed 39 tests with one
 explicitly credential-gated live relay test skipped.
+
+## D-017 — Task 7 review stop
+
+Decision: stop the Task 7 review loop after the fifth fix round; do not advance to runtime work while duplicate publication promises can hang or the live database probe contradicts migration 0011.
+
+Reason: the remaining defects affect liveness and deployment evidence. Continuing without a new controlled repair/review would violate the TDD review protocol and create false production confidence.

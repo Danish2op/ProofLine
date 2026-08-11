@@ -18,4 +18,5 @@ Task 7: fix round 1/5 (7 findings open: transport, atomic persistence, reviewer 
 Task 7: fix round 2/5 (4 findings open: proposal writer, passport binding, request_changes transition, NIP-42 retry/timeout; fix base 71a59a6)
 Task 7: fix round 3/5 (3 findings open: NIP-42 auth gating, connect timeout, signed passport-hash binding; fix base fab1b30)
 Task 7: fix round 4/5 (1 finding addressed: per-connection NIP-42 auth state/promise/queue prevents concurrent escape and flush omission; fresh independent review pending; fix base d59e5d2)
+Task 7: fix round 5/5 (stale auth continuations invalidated; final review found duplicate-publication hang and stale live DB probe; task blocked, commit 464acb7)
 Task 7: fix round 5/5 (1 P1 addressed: stale signer continuations are invalidated by socket identity and connection generation; focused 39 passed/1 skipped, full 211 passed/1 skipped; final independent review pending)
