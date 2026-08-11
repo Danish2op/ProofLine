@@ -210,6 +210,20 @@ describe('Proofline database constraints', () => {
     expect(lifecycle).toContain('source_approval_event_id');
   });
 
+  it('hardens approval against caller provenance substitution and audit collisions', () => {
+    const lifecycle = allMigrations();
+
+    expect(lifecycle).toContain('create or replace function public.approve_verified_action(');
+    expect(lifecycle).toContain('buzz_event_provenance');
+    expect(lifecycle).toContain('signature_verified');
+    expect(lifecycle).toContain('buzz_reviewer_identities');
+    expect(lifecycle).toContain('proposal_event_id');
+    expect(lifecycle).toContain('source_approval_raw_event_json');
+    expect(lifecycle).toContain('approval_provenance_mismatch');
+    expect(lifecycle).toContain('audit id collision');
+    expect(lifecycle).toContain('source_expected_version is null');
+  });
+
   it('keeps seed data visibly synthetic and free of credentials', () => {
     const fixture = seed();
 

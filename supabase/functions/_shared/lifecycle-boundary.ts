@@ -3,7 +3,10 @@ export interface AuthenticatedCaller {
   accessToken: string;
 }
 
-export type LifecyclePermission = 'approve_action' | 'revoke_action';
+export type LifecyclePermission =
+  | 'approve_action'
+  | 'revoke_action'
+  | 'create_action';
 
 export interface LifecycleBoundaryDependencies {
   authenticate(request: Request): Promise<AuthenticatedCaller | null>;
@@ -50,8 +53,8 @@ export async function authorizeCaller(
   const anonKey = env('SUPABASE_ANON_KEY', 'NEXT_PUBLIC_SUPABASE_ANON_KEY');
   if (!url || !anonKey) return false;
   const roles =
-    permission === 'approve_action'
-      ? ['owner', 'admin', 'reviewer']
+    permission === 'create_action'
+      ? ['owner', 'admin', 'proposer']
       : ['owner', 'admin', 'reviewer'];
   const response = await fetch(`${url}/rest/v1/rpc/is_workspace_member`, {
     method: 'POST',
@@ -80,7 +83,10 @@ export async function transitionRpc(
       { error: { code: 'configuration_missing', retryable: false } },
       { status: 503 },
     );
-  return fetch(`${url}/rest/v1/rpc/transition_action`, {
+  const rpcName = input.source_target_status === 'APPROVED'
+    ? 'approve_verified_action'
+    : 'transition_action';
+  return fetch(`${url}/rest/v1/rpc/${rpcName}`, {
     method: 'POST',
     headers: {
       apikey: serviceKey,

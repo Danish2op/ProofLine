@@ -30,7 +30,10 @@ export function createApproveActionHandler(
         'approvalEventId',
         'approvedAt',
         'expiresAt',
+        'approvalActorPubkey',
       ])
+      || typeof body.expectedVersion !== 'number'
+      || !isRecord(body.rawEvent)
     ) {
       return errorResponse(
         'invalid_request',
@@ -52,8 +55,7 @@ export function createApproveActionHandler(
     const response = await dependencies.transition({
       target_workspace_id: workspaceId,
       target_action_passport_id: actionPassportId,
-      source_expected_version:
-        typeof body.expectedVersion === 'number' ? body.expectedVersion : 0,
+      source_expected_version: body.expectedVersion,
       source_target_status: 'APPROVED',
       source_command_id: body.commandId,
       source_command_hash: body.commandHash,
@@ -65,13 +67,8 @@ export function createApproveActionHandler(
       source_approval_event_id: body.approvalEventId,
       source_approved_at: body.approvedAt,
       source_expires_at: body.expiresAt,
-      source_approval_actor_pubkey:
-        typeof body.approvalActorPubkey === 'string'
-          ? body.approvalActorPubkey
-          : null,
-      source_approval_raw_event_json: isRecord(body.rawEvent)
-        ? body.rawEvent
-        : {},
+      source_approval_actor_pubkey: body.approvalActorPubkey,
+      source_approval_raw_event_json: body.rawEvent,
     });
     return response.ok
       ? json(await response.json(), response.status)

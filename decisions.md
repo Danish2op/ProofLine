@@ -191,3 +191,11 @@ runs. Live migration application was not attempted because no disposable
 Decision: lifecycle Edge boundaries authenticate and authorize callers before service-role mutation; approval and revoke use the versioned Task 8 transition RPC; migration 0013 derives and validates command hashes from a canonical server-side payload and persists deterministic rejection receipts/audits; worker package boundaries are explicit; and approval expiry is enforced at the pure transition boundary.
 
 Validation: focused lifecycle/edge/worker verification passed 3 files / 21 tests; `pnpm typecheck` exited 0. Full-suite and live database checks remain intentionally unrun.
+
+## D-024 — Task 8 fix round 2 provenance boundary
+
+Decision: the retired Buzz processor is fail-closed; approval is admitted only by a server-side provenance-aware lifecycle RPC that resolves the exact stored proposal/action/workspace binding and active reviewer identity; create-action uses the authenticated membership boundary; and audit identifiers are deterministically tenant/action scoped with explicit collision failure.
+
+Reason: a valid Buzz event or service-role endpoint must never be reusable as authorization for another action or workspace, and audit uniqueness must not depend on silent conflict suppression.
+
+Validation: RED recorded 5 failures / 21 tests. Final bounded regression passed 5 files / 44 tests; `pnpm typecheck` and `pnpm exec prettier --check pnpm-lock.yaml` exited 0. No live SQL execution was available or attempted.

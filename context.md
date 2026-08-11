@@ -120,3 +120,9 @@ user's direction. Do not begin Task 9 in this task.
 The five reviewer findings are addressed: Edge handlers authenticate and authorize workspace membership/role before service-role mutation; approval uses the versioned Task 8 lifecycle RPC; migration 0013 binds hashes to the canonical server-side command payload and records deterministic rejection receipts/audits; the worker package has an explicit domain dependency/build boundary; and expired approvals are rejected before `APPROVED`.
 
 Focused verification: 3 files and 21 tests passed; `pnpm typecheck` exited 0. No full suite, build, lint, format, or live database probe was run.
+
+## Task 8 fix round 2 status (2026-08-11)
+
+The five fix-round findings are addressed. The legacy Buzz processor now fails closed; approval requires a complete command contract and server-stored verified provenance bound to the exact workspace/action/proposal and active reviewer; create-action authenticates before service-role insertion; audit IDs are tenant/action scoped with collision detection; and `pnpm-lock.yaml` is formatted.
+
+Evidence: RED recorded 5 failures / 21 tests; final bounded regression passed 5 files / 44 tests in 4.11s, `pnpm typecheck` exited 0, and the lockfile-only Prettier check exited 0. No full suite or live database probe was run.

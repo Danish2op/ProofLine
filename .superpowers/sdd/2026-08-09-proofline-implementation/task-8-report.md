@@ -37,3 +37,23 @@ Strict TDD evidence:
 - `pnpm --filter @proofline/worker run build` — exit 0.
 
 Per the bounded-verification instruction, no unbounded full suite was run. Root lint/format, root build, and live Supabase migration/RPC execution were not run; migration coverage is static-contract coverage only.
+
+## Fix round 2 evidence (2026-08-11)
+
+Reviewer findings addressed:
+
+- `process-buzz-event` is now explicitly deprecated with a fail-closed 410 response and no legacy `apply_verified_buzz_approval` mutation path.
+- `approve-action` requires expected version, approval event ID, timestamps, reviewer pubkey, and raw event fields. It routes approval through `approve_verified_action`; migration 0014 accepts only stored, signature-verified provenance bound to the exact workspace/action/proposal and an active reviewer identity, and derives the approval values from stored provenance.
+- `create-action` authenticates and checks workspace membership/role before its service-role insert.
+- Migration 0014 derives tenant/action-scoped audit IDs and raises on an existing ID belonging to another aggregate instead of silently swallowing a collision.
+- `pnpm-lock.yaml` was formatted with Prettier and the bounded check passes.
+
+Strict TDD evidence:
+
+- RED: `pnpm vitest run tests/integration/lifecycle/edge-boundaries.test.ts tests/integration/database/constraints.test.ts` — 5 expected failures / 21 tests; failures covered the missing 0014 artifact/contract, incomplete approval acceptance, legacy endpoint, and create boundary.
+- Focused GREEN: same command plus `tests/unit/lifecycle/state-machine.test.ts` — 3 files passed, 37 tests passed.
+- Final bounded regression: `pnpm vitest run tests/integration/lifecycle/edge-boundaries.test.ts tests/integration/database/constraints.test.ts tests/unit/lifecycle/state-machine.test.ts tests/integration/lifecycle/race-conditions.test.ts tests/unit/lifecycle/worker-package.test.ts` — 5 files passed, 44 tests passed, 4.11s.
+- `pnpm typecheck` — exit 0.
+- `pnpm exec prettier --check pnpm-lock.yaml` — exit 0 after formatting.
+
+No full suite, root build, lint, repository-wide format check, or live Supabase migration/RPC execution was run in this bounded round.
