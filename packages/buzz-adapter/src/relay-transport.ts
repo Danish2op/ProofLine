@@ -11,7 +11,11 @@ export interface RelaySocket {
 
 export class RelayTransportError extends Error {
   constructor(
-    readonly code: 'relay_unavailable' | 'relay_rejected' | 'malformed_frame',
+    readonly code:
+      | 'relay_unavailable'
+      | 'relay_rejected'
+      | 'malformed_frame'
+      | 'network_timeout',
     message: string,
   ) {
     super(message);
@@ -20,11 +24,20 @@ export class RelayTransportError extends Error {
 
 export class Nip01RelayTransport implements BuzzTransport {
   private readonly relayUrl: string;
+  private readonly publicationTimeoutMs: number;
   private socket: RelaySocket | null = null;
   private connecting: Promise<RelaySocket> | null = null;
+  private authenticated = false;
+  private authEventId: string | null = null;
   private readonly pending = new Map<
     string,
-    { resolve: () => void; reject: (error: Error) => void }
+    {
+      event: BuzzSignedEvent;
+      resolve: () => void;
+      reject: (error: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+      awaitingAuth: boolean;
+    }
   >();
 
   constructor(
@@ -32,15 +45,34 @@ export class Nip01RelayTransport implements BuzzTransport {
       relayUrl: string;
       signer: BuzzSigner;
       socketFactory?: (relayUrl: string) => RelaySocket;
+      publicationTimeoutMs?: number;
     },
   ) {
     this.relayUrl = new URL(options.relayUrl).toString();
+    this.publicationTimeoutMs = options.publicationTimeoutMs ?? 10_000;
   }
 
   async publish(event: BuzzSignedEvent): Promise<void> {
     const socket = await this.connect();
     await new Promise<void>((resolve, reject) => {
-      this.pending.set(event.id, { resolve, reject });
+      const timer = setTimeout(() => {
+        const pending = this.pending.get(event.id);
+        if (!pending) return;
+        this.pending.delete(event.id);
+        pending.reject(
+          new RelayTransportError(
+            'network_timeout',
+            'Relay publication acknowledgement timed out.',
+          ),
+        );
+      }, this.publicationTimeoutMs);
+      this.pending.set(event.id, {
+        event,
+        resolve,
+        reject,
+        timer,
+        awaitingAuth: false,
+      });
       socket.send(JSON.stringify(['EVENT', event]));
     });
   }
@@ -49,6 +81,8 @@ export class Nip01RelayTransport implements BuzzTransport {
     this.socket?.close();
     this.socket = null;
     this.connecting = null;
+    this.authenticated = false;
+    this.authEventId = null;
   }
 
   private connect(): Promise<RelaySocket> {
@@ -59,6 +93,7 @@ export class Nip01RelayTransport implements BuzzTransport {
       const socket = this.createSocket();
       socket.onopen = () => {
         this.socket = socket;
+        this.authenticated = false;
         resolve(socket);
       };
       socket.onmessage = (event) => {
@@ -77,10 +112,11 @@ export class Nip01RelayTransport implements BuzzTransport {
           'relay_unavailable',
           'Relay connection closed.',
         );
-        for (const pending of this.pending.values()) pending.reject(error);
-        this.pending.clear();
+        this.rejectAll(error);
         this.socket = null;
         this.connecting = null;
+        this.authenticated = false;
+        this.authEventId = null;
       };
     });
     return this.connecting;
@@ -117,17 +153,44 @@ export class Nip01RelayTransport implements BuzzTransport {
       typeof frame[1] === 'string' &&
       typeof frame[2] === 'boolean'
     ) {
+      if (frame[1] === this.authEventId) {
+        this.authEventId = null;
+        if (!frame[2]) {
+          this.rejectAll(
+            new RelayTransportError(
+              'relay_rejected',
+              String(frame[3] ?? 'Relay authentication rejected.'),
+            ),
+          );
+          return;
+        }
+        this.authenticated = true;
+        for (const pending of this.pending.values()) {
+          if (!pending.awaitingAuth) continue;
+          pending.awaitingAuth = false;
+          this.socket?.send(JSON.stringify(['EVENT', pending.event]));
+        }
+        return;
+      }
+
       const pending = this.pending.get(frame[1]);
       if (!pending) return;
-      this.pending.delete(frame[1]);
-      if (frame[2]) pending.resolve();
-      else
+      if (frame[2]) {
+        this.pending.delete(frame[1]);
+        clearTimeout(pending.timer);
+        pending.resolve();
+      } else if (isAuthRequired(String(frame[3] ?? ''))) {
+        pending.awaitingAuth = true;
+      } else {
+        this.pending.delete(frame[1]);
+        clearTimeout(pending.timer);
         pending.reject(
           new RelayTransportError(
             'relay_rejected',
             String(frame[3] ?? 'Relay rejected event.'),
           ),
         );
+      }
     }
   }
 
@@ -141,6 +204,7 @@ export class Nip01RelayTransport implements BuzzTransport {
       ],
       content: '',
     });
+    this.authEventId = auth.id;
     this.socket?.send(JSON.stringify(['AUTH', auth]));
   }
 
@@ -151,7 +215,14 @@ export class Nip01RelayTransport implements BuzzTransport {
   }
 
   private rejectAll(error: Error): void {
-    for (const pending of this.pending.values()) pending.reject(error);
+    for (const pending of this.pending.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(error);
+    }
     this.pending.clear();
   }
+}
+
+function isAuthRequired(reason: string): boolean {
+  return /auth[-_ ]?required|authentication required/i.test(reason);
 }

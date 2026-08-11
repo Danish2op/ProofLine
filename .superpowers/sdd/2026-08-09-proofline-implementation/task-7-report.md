@@ -210,3 +210,57 @@ the same commit; see repository history for its final object ID).
 - `BUZZ_RELAY_URL`, `BUZZ_DEMO_CHANNEL`, and `SUPABASE_DB_URL` were absent, so
   neither the live relay nor live database probe authenticated, published, or
   claimed success. These are the remaining credential-gated limitations.
+
+## Fix Round 2 (2026-08-11)
+
+### RED / GREEN evidence
+
+| Defect | RED evidence | GREEN evidence |
+| --- | --- | --- |
+| Proposal provenance writer | `pnpm vitest run tests/unit/buzz-adapter/provenance.test.ts tests/integration/database/constraints.test.ts` failed with `writer.recordProposal is not a function`. | The focused suite below passes; `DatabaseProvenanceWriter.recordProposal` verifies and sends workspace, passport, channel-bearing raw event, proposer pubkey, and relay data to `record_verified_buzz_proposal`. |
+| Passport substitution | The same RED run failed because the RPC payload still contained `target_action_passport_id` from the approval caller. | The same focused suite passes; approval input has no passport target and migration 0010 resolves the stored proposal's bound passport. |
+| Forward migration | The same RED run failed because `0010_task_7_proposal_binding_and_request_changes.sql` did not exist. | `pnpm vitest run tests/integration/database/constraints.test.ts` -> `11 passed`. |
+| NIP-42 retry and timeout | `pnpm vitest run tests/integration/buzz-adapter/relay.test.ts` failed 3 tests: auth-required rejection did not retry, timeout test hung until Vitest's 5-second test timeout, and proposal recording hook was absent. | Same command -> `7 passed, 1 skipped`; retry sends a second EVENT after AUTH success and no-ack publication returns `network_timeout`. |
+
+The final focused verification for this round was:
+
+```text
+pnpm vitest run tests/unit/buzz-adapter tests/integration/buzz-adapter tests/integration/database/constraints.test.ts --testTimeout=5000 --hookTimeout=5000
+Test Files  6 passed (6)
+Tests  34 passed | 1 skipped (35)
+Duration  11.51s (tests 11.66s)
+
+pnpm typecheck
+$ tsc --noEmit
+```
+
+The full repository suite was not rerun in this round because the requested
+verification scope was focused Buzz adapter tests plus typecheck. The live
+relay test remains skipped without configured identity/membership, and the
+live Supabase probe remains credential-gated; neither claims authenticated
+success.
+
+Final requested verification after the interrupted attempt was stopped:
+
+```text
+pnpm exec vitest run tests/unit/buzz-adapter tests/integration/buzz-adapter --reporter=dot --testTimeout=5000 --hookTimeout=5000
+Test Files  5 passed (5)
+Tests  23 passed | 1 skipped (24)
+Duration  4.74s (tests 4.94s)
+
+pnpm typecheck
+$ tsc --noEmit
+```
+
+No focused test or typecheck failure remained. The separate migration artifact
+check had already passed earlier in this round with `11 passed`.
+
+### Fix Round 2 changed files
+
+- `packages/buzz-adapter/src/{client,provenance,relay-transport}.ts`
+- `supabase/migrations/0010_task_7_proposal_binding_and_request_changes.sql`
+- `scripts/verify-supabase-db.ts`
+- `tests/integration/buzz-adapter/relay.test.ts`
+- `tests/integration/database/migration-test-helpers.ts`
+- `tests/unit/buzz-adapter/provenance.test.ts`
+- `context.md` and `decisions.md` (round state and decisions D-010/D-011)

@@ -13,6 +13,48 @@ import {
 } from '../../../packages/buzz-adapter/src/event-codec.js';
 
 describe('Buzz event provenance', () => {
+  it('records a verified proposal with its workspace, passport, channel, and proposer identity', async () => {
+    const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+    const writer = new DatabaseProvenanceWriter({
+      async call(name, args) {
+        calls.push({ name, args });
+        return 'stored';
+      },
+    });
+    const event = signedProposalEvent();
+
+    await expect(
+      (
+        writer as DatabaseProvenanceWriter & {
+          recordProposal(input: Record<string, unknown>): Promise<string>;
+        }
+      ).recordProposal({
+        event,
+        workspaceId: 'f2e0b809-2d1d-43cd-85c5-99522d4f0611',
+        actionPassportId: '5fa2a464-8c93-4452-aa65-83e92a7a9e1f',
+        relayUrl: 'wss://relay.example.test/',
+      }),
+    ).resolves.toBe('stored');
+
+    expect(calls[0]).toEqual({
+      name: 'record_verified_buzz_proposal',
+      args: {
+        target_workspace_id: 'f2e0b809-2d1d-43cd-85c5-99522d4f0611',
+        target_action_passport_id: '5fa2a464-8c93-4452-aa65-83e92a7a9e1f',
+        source_relay_url: 'wss://relay.example.test/',
+        source_raw_event_json: {
+          id: event.id,
+          pubkey: event.pubkey,
+          created_at: event.createdAt,
+          kind: 9,
+          tags: event.tags,
+          content: event.content,
+          sig: event.sig,
+        },
+      },
+    });
+  });
+
   it('retries only explicitly transient relay failures', () => {
     expect(isRetryableBuzzFailure('network_timeout')).toBe(true);
     expect(isRetryableBuzzFailure('relay_unavailable')).toBe(true);
@@ -22,7 +64,7 @@ describe('Buzz event provenance', () => {
     expect(isRetryableBuzzFailure('policy_denied')).toBe(false);
   });
 
-  it('sends only the verified raw event to the guarded provenance RPC', async () => {
+  it('does not forward a caller-supplied passport when applying an approval', async () => {
     const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
     const writer = new DatabaseProvenanceWriter({
       async call(name, args) {
@@ -36,11 +78,11 @@ describe('Buzz event provenance', () => {
       writer.recordAndApply({
         event,
         workspaceId: 'f2e0b809-2d1d-43cd-85c5-99522d4f0611',
-        actionPassportId: '5fa2a464-8c93-4452-aa65-83e92a7a9e1f',
+        actionPassportId: '6fa2a464-8c93-4452-aa65-83e92a7a9e1f',
         approvedAt: '2026-08-10T00:00:00.000Z',
         expiresAt: '2026-08-10T01:00:00.000Z',
         relayUrl: 'wss://relay.example.test/',
-      }),
+      } as never),
     ).resolves.toBe('applied');
 
     expect(calls).toEqual([
@@ -48,7 +90,6 @@ describe('Buzz event provenance', () => {
         name: 'apply_verified_buzz_approval',
         args: {
           target_workspace_id: 'f2e0b809-2d1d-43cd-85c5-99522d4f0611',
-          target_action_passport_id: '5fa2a464-8c93-4452-aa65-83e92a7a9e1f',
           source_approved_at: '2026-08-10T00:00:00.000Z',
           source_expires_at: '2026-08-10T01:00:00.000Z',
           source_relay_url: 'wss://relay.example.test/',
@@ -86,7 +127,6 @@ describe('Buzz event provenance', () => {
           rawHash: 'a'.repeat(64),
         } as unknown as VerifiedBuzzEvent,
         workspaceId: 'f2e0b809-2d1d-43cd-85c5-99522d4f0611',
-        actionPassportId: '5fa2a464-8c93-4452-aa65-83e92a7a9e1f',
         approvedAt: '2026-08-10T00:00:00.000Z',
         expiresAt: '2026-08-10T01:00:00.000Z',
         relayUrl: 'wss://relay.example.test/',
@@ -102,6 +142,30 @@ function signedVerifiedEvent(): VerifiedBuzzEvent {
   const kind = 7;
   const tags = [['e', 'c'.repeat(64)]];
   const content = '+';
+  const id = createHash('sha256')
+    .update(JSON.stringify([0, pubkey, createdAt, kind, tags, content]))
+    .digest('hex');
+  const verified = verifyEvent({
+    id,
+    pubkey,
+    created_at: createdAt,
+    kind,
+    tags,
+    content,
+    sig: bytesToHex(schnorr.sign(hexToBytes(id), hexToBytes(privateKey))),
+  });
+  if ('code' in verified) throw new Error(verified.message);
+  return verified;
+}
+
+function signedProposalEvent(): VerifiedBuzzEvent {
+  const privateKey = '5'.repeat(64);
+  const pubkey = bytesToHex(schnorr.getPublicKey(hexToBytes(privateKey)));
+  const createdAt = 1_700_000_001;
+  const kind = 9;
+  const tags = [['h', 'proofline-demo-channel']];
+  const content =
+    '{"proofline":{"schema":"proofline.passport.v1","type":"proposal"}}';
   const id = createHash('sha256')
     .update(JSON.stringify([0, pubkey, createdAt, kind, tags, content]))
     .digest('hex');

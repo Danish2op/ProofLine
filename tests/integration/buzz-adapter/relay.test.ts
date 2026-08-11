@@ -60,9 +60,16 @@ describe('Buzz relay adapter', () => {
       relayUrl: 'wss://relay.example.test',
       signer: deterministicSigner(),
       socketFactory: () => socket,
+      provenanceWriter: {
+        async recordProposal() {
+          return 'stored';
+        },
+      },
     });
 
     const publishing = client.publishProposal({
+      workspaceId,
+      actionPassportId,
       channelId: 'proofline-demo-channel',
       passportHash: 'a'.repeat(64),
       message: 'Deploy revision demo-42.',
@@ -82,6 +89,100 @@ describe('Buzz relay adapter', () => {
     await expect(publishing).resolves.toMatchObject({ kind: 9 });
   });
 
+  it('retries a publication rejected for missing auth after NIP-42 succeeds', async () => {
+    const socket = new FakeRelaySocket();
+    const signer = deterministicSigner();
+    const transport = new Nip01RelayTransport({
+      relayUrl: 'wss://relay.example.test',
+      signer,
+      socketFactory: () => socket,
+      publicationTimeoutMs: 100,
+    });
+    const event = await signer.sign({
+      created_at: 1_700_000_000,
+      kind: 9,
+      tags: [['h', 'proofline-demo-channel']],
+      content: 'proposal',
+    });
+
+    const publishing = transport.publish(event);
+    socket.open();
+    await waitFor(() => socket.frames.some((frame) => frame[0] === 'EVENT'));
+    socket.receive(['OK', event.id, false, 'auth-required']);
+    socket.receive(['AUTH', 'retry-challenge']);
+    await waitFor(() => socket.frames.some((frame) => frame[0] === 'AUTH'));
+
+    const authFrame = socket.frames.find((frame) => frame[0] === 'AUTH');
+    socket.receive([
+      'OK',
+      (authFrame![1] as { id: string }).id,
+      true,
+      'authenticated',
+    ]);
+    await waitFor(
+      () => socket.frames.filter((frame) => frame[0] === 'EVENT').length === 2,
+    );
+    socket.receive(['OK', event.id, true, 'stored']);
+    await expect(publishing).resolves.toBeUndefined();
+  });
+
+  it('bounds a publication that receives no relay acknowledgement', async () => {
+    const socket = new FakeRelaySocket();
+    const signer = deterministicSigner();
+    const transport = new Nip01RelayTransport({
+      relayUrl: 'wss://relay.example.test',
+      signer,
+      socketFactory: () => socket,
+      publicationTimeoutMs: 10,
+    });
+    const event = await signer.sign({
+      created_at: 1_700_000_000,
+      kind: 9,
+      tags: [['h', 'proofline-demo-channel']],
+      content: 'proposal',
+    });
+
+    const publishing = transport.publish(event);
+    socket.open();
+    await expect(publishing).rejects.toMatchObject({ code: 'network_timeout' });
+  });
+
+  it('records a published proposal before returning its relay reference', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const published: unknown[] = [];
+    const client = new BuzzAdapterClient({
+      relayUrl: 'wss://relay.example.test',
+      signer: deterministicSigner(),
+      transport: {
+        async publish(event: { id: string }) {
+          published.push(event);
+        },
+      },
+      provenanceWriter: {
+        async recordProposal(input: Record<string, unknown>) {
+          calls.push(input as unknown as Record<string, unknown>);
+        },
+      },
+    } as never);
+
+    await client.publishProposal({
+      workspaceId,
+      actionPassportId,
+      channelId: 'proofline-demo-channel',
+      passportHash: 'a'.repeat(64),
+      message: 'Deploy revision demo-42.',
+    } as never);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      workspaceId,
+      actionPassportId,
+      relayUrl: 'wss://relay.example.test/',
+      event: { kind: 9, pubkey: expect.any(String), sig: expect.any(String) },
+    });
+    expect(published).toHaveLength(1);
+  });
+
   it('publishes a structured proposal through the supplied signer and transport', async () => {
     const published: unknown[] = [];
     const client = new BuzzAdapterClient({
@@ -92,9 +193,16 @@ describe('Buzz relay adapter', () => {
           published.push(event);
         },
       },
+      provenanceWriter: {
+        async recordProposal() {
+          return 'stored';
+        },
+      },
     });
 
     const ref = await client.publishProposal({
+      workspaceId,
+      actionPassportId,
       channelId: 'proofline-demo-channel',
       passportHash: 'a'.repeat(64),
       message: 'Deploy revision demo-42.',
@@ -156,6 +264,9 @@ describe('Buzz relay adapter', () => {
     },
   );
 });
+
+const workspaceId = 'f2e0b809-2d1d-43cd-85c5-99522d4f0611';
+const actionPassportId = '5fa2a464-8c93-4452-aa65-83e92a7a9e1f';
 
 class FakeRelaySocket {
   readonly frames: unknown[][] = [];

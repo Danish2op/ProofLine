@@ -2,6 +2,7 @@ import {
   maxBuzzEventContentBytes,
   verifyEvent,
   type BuzzAdapterError,
+  type VerifiedBuzzEvent,
 } from './event-codec.js';
 import type { ApprovalObservation } from './approval-parser.js';
 import { Nip01RelayTransport, type RelaySocket } from './relay-transport.js';
@@ -16,6 +17,8 @@ export interface BuzzEventRef {
 }
 
 export interface BuzzProposalInput {
+  workspaceId: string;
+  actionPassportId: string;
   channelId: string;
   passportHash: string;
   message: string;
@@ -45,6 +48,15 @@ export interface BuzzApprovalReader {
   readApprovalForProposal(
     proposalEventId: string,
   ): Promise<ApprovalObservation>;
+}
+
+export interface BuzzProposalProvenanceWriter {
+  recordProposal(input: {
+    event: VerifiedBuzzEvent;
+    workspaceId: string;
+    actionPassportId: string;
+    relayUrl: string;
+  }): Promise<string>;
 }
 
 export interface BuzzUnsignedEvent {
@@ -80,6 +92,7 @@ export class BuzzAdapterClient {
       transport?: BuzzTransport;
       socketFactory?: (relayUrl: string) => RelaySocket;
       approvalReader?: BuzzApprovalReader;
+      provenanceWriter?: BuzzProposalProvenanceWriter;
     },
   ) {
     this.relayUrl = normalizeRelayUrl(options.relayUrl);
@@ -161,6 +174,20 @@ export class BuzzAdapterClient {
     const verified = verifyEvent(signed);
     if (isAdapterError(verified)) {
       throw new BuzzClientError('invalid_signed_event', verified.message);
+    }
+    if (type === 'proposal') {
+      if (!this.options.provenanceWriter) {
+        throw new BuzzClientError(
+          'invalid_input',
+          'Buzz proposal provenance writer is required.',
+        );
+      }
+      await this.options.provenanceWriter.recordProposal({
+        event: verified,
+        workspaceId: input.workspaceId,
+        actionPassportId: input.actionPassportId,
+        relayUrl: this.relayUrl,
+      });
     }
     await this.transport.publish(signed);
 
