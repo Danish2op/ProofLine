@@ -138,3 +138,9 @@ Evidence: RED recorded 4 failures / 21 tests; final focused tests passed 6 files
 The approval boundary now serializes exactly the v2 SQL contract, migration 0015 and the adapter use the last NIP-25 `e` tag, and the Supabase verification script covers migrations through 0015 without retired approval-RPC calls. Worker subprocess checks are explicitly bounded and deterministic.
 
 Evidence: RED recorded 4 failures / 36 tests; focused GREEN passed 5 files / 36 tests; bounded full Vitest passed 24 files / 255 tests with 1 skip; both package builds, typecheck, lint, and formatter checks passed. `pnpm db:verify` exited 0 with the expected missing-credentials skip. Do not begin Task 9.
+
+## Task 8 fix round 5 status (2026-08-11)
+
+The final reviewer findings are addressed: approval RPC serialization is a strict 13-field allowlist; credentialed database verification fails loudly when the v2/0015 lifecycle contract is absent; rejection audit IDs include canonical command hash/result with collision detection; and approve/create Edge files are formatted.
+
+Evidence: RED recorded 4 failures / 27 tests; focused GREEN passed 3 files / 27 tests; bounded full Vitest passed 24 files / 256 tests with 1 skip; both builds, typecheck, lint, Prettier, diff check, and the credential-gated db-verifier skip passed. No live database credentials were available. Do not begin Task 9.

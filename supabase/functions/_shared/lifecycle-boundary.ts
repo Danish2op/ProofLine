@@ -100,12 +100,26 @@ export function lifecycleRpcPayload(
   input: Record<string, unknown>,
 ): Record<string, unknown> {
   if (input.source_target_status !== 'APPROVED') return { ...input };
-  const {
-    source_target_status: _targetStatus,
-    source_actor_type: _actorType,
-    ...approvedPayload
-  } = input;
-  return approvedPayload;
+  const approvedArgumentNames = [
+    'target_workspace_id',
+    'target_action_passport_id',
+    'source_expected_version',
+    'source_command_id',
+    'source_command_hash',
+    'source_actor_id',
+    'source_correlation_id',
+    'source_causation_id',
+    'source_approval_event_id',
+    'source_approved_at',
+    'source_expires_at',
+    'source_approval_actor_pubkey',
+    'source_approval_raw_event_json',
+  ] as const;
+  return Object.fromEntries(
+    approvedArgumentNames
+      .filter((name) => name in input)
+      .map((name) => [name, input[name]]),
+  );
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {

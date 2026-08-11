@@ -215,3 +215,11 @@ Decision: Edge approval serialization is an explicit allowlist for the v2 SQL si
 Reason: named RPC boundaries must not accidentally widen when internal command fields evolve, and live verification must exercise the same retired-RPC-free path as production while remaining safe without credentials.
 
 Validation: RED recorded 4 failures / 36 tests. Focused GREEN passed 5 files / 36 tests; bounded full Vitest passed 24 files / 255 tests with 1 skip; Buzz adapter and worker builds, typecheck, lint, Prettier, `git diff --check`, and credential-gated `pnpm db:verify` skip all passed.
+
+## D-027 — Task 8 final boundary hardening
+
+Decision: approve RPC serialization is a closed named-argument allowlist; credentialed verification treats the complete migration-0015/v2 contract as mandatory; rejection audit identity includes canonical command hash and result with explicit collision failure; and formatter/build/typecheck/lint checks are required before closing Task 8.
+
+Reason: security boundaries must fail closed both at the HTTP-to-PostgREST serialization edge and at deployment verification, while rejection auditing must preserve distinct conflicts rather than silently suppressing them.
+
+Validation: RED recorded 4 failures / 27 tests. Focused GREEN passed 3 files / 27 tests; bounded full Vitest passed 24 files / 256 tests with 1 skip; both builds, typecheck, lint, Prettier, diff check, and credential-gated db-verifier skip passed. No live SQL execution was possible.

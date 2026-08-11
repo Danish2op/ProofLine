@@ -24,6 +24,7 @@ Task 8: fix round 1/5 (5 findings open: edge-function authz, lifecycle approval 
 Task 8: fix round 2/5 (5 findings open: legacy approval bypass, provenance/action binding, create authz, audit ID collision, required approval inputs; fix base 119296c)
 Task 8: fix round 3/5 (2 findings open: wrong signed-event decoding and remaining legacy approval RPC call; fix base 13063ca)
 Task 8: fix round 4/5 (3 findings open: RPC payload contract, kind-7 last-e target, stale DB verifier; fix base 0b19fc9)
+Task 8: fix round 5/5 (3 findings open: RPC allowlist, stale credentialed DB false PASS, rejection audit collision; fix base a4108e9)
 Task 7: fix round 5/5 (1 P1 addressed: stale signer continuations are invalidated by socket identity and connection generation; focused 39 passed/1 skipped, full 211 passed/1 skipped; final independent review pending)
 Task 7: post-review remediation implemented (duplicate-ID promise reuse/conflict rejection and migration-0011 request_changes probe repaired; RED 3 relay failures plus missing probe helper, GREEN 16 passed/1 skipped; fresh independent review pending)
 Task 7: post-review remediation fresh bounded verification (2026-08-11): relay/probe Vitest 16 passed/1 skipped; pnpm typecheck exit 0; pnpm db:verify expected SUPABASE_DB_URL skip; no full suite run; fresh independent review pending
@@ -32,3 +33,4 @@ Task 8: fix round 1 final bounded verification (3 focused files / 21 tests passe
 Task 8: fix round 2/5 complete (5 findings addressed; RED 5 failures/21 tests; final bounded GREEN 5 files/44 tests in 4.11s; typecheck and lockfile format check exit 0; no full suite/live DB probe)
 Task 8: fix round 3/5 complete (2 findings addressed; RED 4 failures/21 tests; final focused GREEN 6 files/59 tests; Buzz adapter build/typecheck exit 0; scoped ESLint config-ignore warnings recorded; no full suite/live DB probe)
 Task 8: fix round 4/5 complete (3 findings addressed; RED 4 failures/36 tests; focused GREEN 5 files/36 tests; bounded full suite 24 files/255 passed/1 skipped; builds/typecheck/lint/format/db-verify skip passed; no live DB credentials)
+Task 8: fix round 5/5 complete (3 findings addressed; RED 4 failures/27 tests; focused GREEN 3 files/27 tests; bounded full suite 24 files/256 passed/1 skipped; builds/typecheck/lint/format/db-verify skip passed; no live DB credentials)

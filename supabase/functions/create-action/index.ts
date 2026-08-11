@@ -59,7 +59,11 @@ export function createCreateActionHandler(
     const response = await dependencies.insert(action);
     return response.ok
       ? json(await response.json(), 201)
-      : errorResponse('upstream_failure', 'Action creation was rejected.', response.status);
+      : errorResponse(
+          'upstream_failure',
+          'Action creation was rejected.',
+          response.status,
+        );
   };
 }
 
@@ -70,7 +74,9 @@ const deno = (
 ).Deno;
 if (deno) deno.serve(createCreateActionHandler());
 
-async function insertAction(action: Record<string, unknown>): Promise<Response> {
+async function insertAction(
+  action: Record<string, unknown>,
+): Promise<Response> {
   const url = env('SUPABASE_URL');
   const key = env('SUPABASE_SERVICE_ROLE_KEY');
   if (!url || !key)

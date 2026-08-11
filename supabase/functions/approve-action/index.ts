@@ -31,9 +31,9 @@ export function createApproveActionHandler(
         'approvedAt',
         'expiresAt',
         'approvalActorPubkey',
-      ])
-      || typeof body.expectedVersion !== 'number'
-      || !isRecord(body.rawEvent)
+      ]) ||
+      typeof body.expectedVersion !== 'number' ||
+      !isRecord(body.rawEvent)
     ) {
       return errorResponse(
         'invalid_request',

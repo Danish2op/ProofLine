@@ -174,6 +174,7 @@ describe('approve-action command boundary', () => {
       source_expires_at: '2026-08-11T11:00:00.000Z',
       source_approval_actor_pubkey: 'c'.repeat(64),
       source_approval_raw_event_json: { id: 'a'.repeat(64) },
+      unexpected_attacker_field: 'must-not-reach-postgrest',
     });
 
     expect(Object.keys(payload).sort()).toEqual(
@@ -195,6 +196,7 @@ describe('approve-action command boundary', () => {
     );
     expect(payload).not.toHaveProperty('source_target_status');
     expect(payload).not.toHaveProperty('source_actor_type');
+    expect(payload).not.toHaveProperty('unexpected_attacker_field');
   });
 
   it('requires the complete verified approval contract before calling the lifecycle RPC', async () => {

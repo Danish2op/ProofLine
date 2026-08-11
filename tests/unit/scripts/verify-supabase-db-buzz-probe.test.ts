@@ -17,10 +17,14 @@ describe('live Supabase verified Buzz proposal probe', () => {
     expect(script).toContain(
       "'0015_task_8_approval_observation_retirement.sql'",
     );
+    expect(script).toContain(
+      "'0016_task_8_rejection_audit_collision_hardening.sql'",
+    );
     expect(script).toContain('record_verified_buzz_approval_observation');
     expect(script).toContain('approve_verified_action_v2');
     expect(script).not.toContain('apply_verified_buzz_approval(');
     expect(script).toContain('SKIPPED: set SUPABASE_DB_URL');
+    expect(script).toContain('Task 8 lifecycle contract is missing');
   });
 
   it('records the second proposal with its migration-0011 passport hash', async () => {

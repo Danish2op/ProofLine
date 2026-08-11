@@ -100,3 +100,26 @@ Strict TDD and bounded verification:
 - `pnpm db:verify` — exit 0 with the explicit `SUPABASE_DB_URL` skip; no live database claim.
 
 No live Supabase migration/RPC execution was possible without credentials.
+
+## Fix round 5 evidence (2026-08-11)
+
+Final reviewer findings addressed:
+
+- `lifecycleRpcPayload` now uses an explicit allowlist of exactly the 13 `approve_verified_action_v2` named arguments; injected or unknown fields cannot reach PostgREST. The regression asserts the exact serialized key set.
+- With credentials present, `scripts/verify-supabase-db.ts` now requires the v2 approval RPC, observation RPC, and migration-0015 provenance columns, throwing `Task 8 lifecycle contract is missing` instead of skipping. Only missing `SUPABASE_DB_URL` skips. The migration list now includes 0016.
+- Migration 0016 binds rejection audit IDs to workspace, action, command, canonical command hash, and result; any distinct row sharing the ID raises `audit id collision` rather than being silently dropped.
+- `approve-action/index.ts` and `create-action/index.ts` were formatted and pass the changed-file Prettier check.
+
+Strict TDD and bounded verification:
+
+- RED: `pnpm vitest run tests/integration/lifecycle/edge-boundaries.test.ts tests/integration/database/constraints.test.ts tests/unit/scripts/verify-supabase-db-buzz-probe.test.ts` — 4 expected failures / 27 tests.
+- Focused GREEN: same command — 3 files passed, 27 tests passed.
+- Bounded full suite: `pnpm vitest run --testTimeout 30000` — 24 files passed, 256 tests passed, 1 skipped, 9.40s.
+- `pnpm --filter @proofline/buzz-adapter run build` — exit 0.
+- `pnpm --filter @proofline/worker run build` — exit 0.
+- `pnpm typecheck` — exit 0.
+- `pnpm lint` — exit 0.
+- Changed formatter-supported files passed Prettier; `git diff --check` passed.
+- `pnpm db:verify` — exit 0 with the explicit missing-`SUPABASE_DB_URL` skip.
+
+No live Supabase migration/RPC execution was run because credentials were unavailable; SQL migration coverage remains artifact-based.

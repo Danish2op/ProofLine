@@ -241,6 +241,18 @@ describe('Proofline database constraints', () => {
     expect(lifecycle).toContain('order by ordinal');
   });
 
+  it('binds rejection audit identity to the canonical result and fails on collision', () => {
+    const hardening = migration(
+      '0016_task_8_rejection_audit_collision_hardening.sql',
+    );
+
+    expect(hardening).toContain('computed_command_hash');
+    expect(hardening).toContain('result::text');
+    expect(hardening).toContain("':rejected'");
+    expect(hardening).toContain('audit id collision');
+    expect(hardening).toContain('metadata_json = result');
+  });
+
   it('keeps seed data visibly synthetic and free of credentials', () => {
     const fixture = seed();
 

@@ -22,6 +22,7 @@ const migrationNames = [
   '0013_task_8_lifecycle_hardening.sql',
   '0014_task_8_lifecycle_provenance_hardening.sql',
   '0015_task_8_approval_observation_retirement.sql',
+  '0016_task_8_rejection_audit_collision_hardening.sql',
 ] as const;
 
 async function main(): Promise<void> {
@@ -142,46 +143,61 @@ async function verifyLiveDatabase(client: Client): Promise<void> {
     assert.equal(draft.rowCount, 1, 'DRAFT passport insert was rejected');
   });
 
-  const verifiedBuzzRpcAvailable = await hasVerifiedBuzzApprovalRpc(client);
+  await assertTask8LifecycleContract(client);
   await runAsServiceRole(client, async () => {
     await verifyExecutionExpiry(client, contextA, workspaceA);
     await verifyPopulatedDemoCleanup(client, contextA, workspaceA);
-    if (verifiedBuzzRpcAvailable) {
-      await verifyVerifiedBuzzApprovalRpc(client, contextA, workspaceA);
-    } else {
-      console.log(
-        'SKIPPED: verified Buzz approval RPC is not installed in this database.',
-      );
-    }
+    await verifyVerifiedBuzzApprovalRpc(client, contextA, workspaceA);
   });
 
-  if (verifiedBuzzRpcAvailable) {
-    await runAsAuthenticated(client, userA, async () => {
-      await expectFailure(
-        client,
-        "select public.approve_verified_action_v2($1, $2, 0, $3, $4, $5, $6, null, $7, current_timestamp, current_timestamp + interval '1 hour', $8, $9::jsonb)",
-        [
-          workspaceA,
-          randomUUID(),
-          randomUUID(),
-          'a'.repeat(64),
-          'probe-user',
-          randomUUID(),
-          'b'.repeat(64),
-          'c'.repeat(64),
-          JSON.stringify(validBuzzEvent('a', 'b')),
-        ],
-        'permission denied',
-      );
-    });
-  }
+  await runAsAuthenticated(client, userA, async () => {
+    await expectFailure(
+      client,
+      "select public.approve_verified_action_v2($1, $2, 0, $3, $4, $5, $6, null, $7, current_timestamp, current_timestamp + interval '1 hour', $8, $9::jsonb)",
+      [
+        workspaceA,
+        randomUUID(),
+        randomUUID(),
+        'a'.repeat(64),
+        'probe-user',
+        randomUUID(),
+        'b'.repeat(64),
+        'c'.repeat(64),
+        JSON.stringify(validBuzzEvent('a', 'b')),
+      ],
+      'permission denied',
+    );
+  });
 }
 
-async function hasVerifiedBuzzApprovalRpc(client: Client): Promise<boolean> {
-  const result = await client.query<{ present: boolean }>(
-    "select to_regprocedure('public.approve_verified_action_v2(uuid,uuid,bigint,uuid,text,text,uuid,uuid,text,timestamptz,timestamptz,text,jsonb)') is not null as present",
+async function assertTask8LifecycleContract(client: Client): Promise<void> {
+  const result = await client.query<{
+    approval_rpc_present: boolean;
+    observation_rpc_present: boolean;
+    migration_0015_columns_present: boolean;
+  }>(
+    `select
+       to_regprocedure('public.approve_verified_action_v2(uuid,uuid,bigint,uuid,text,text,uuid,uuid,text,timestamptz,timestamptz,text,jsonb)') is not null as approval_rpc_present,
+       to_regprocedure('public.record_verified_buzz_approval_observation(uuid,timestamptz,timestamptz,text,jsonb)') is not null as observation_rpc_present,
+       exists (
+         select 1 from information_schema.columns
+         where table_schema = 'public'
+           and table_name = 'buzz_event_provenance'
+           and column_name in ('approval_approved_at', 'approval_expires_at')
+         group by table_schema, table_name
+         having count(*) = 2
+       ) as migration_0015_columns_present`,
   );
-  return result.rows[0]?.present === true;
+  const contract = result.rows[0];
+  if (
+    !contract?.approval_rpc_present ||
+    !contract.observation_rpc_present ||
+    !contract.migration_0015_columns_present
+  ) {
+    throw new Error(
+      'Task 8 lifecycle contract is missing: migration 0015 and v2 approval/observation RPCs are required.',
+    );
+  }
 }
 
 async function verifyVerifiedBuzzApprovalRpc(
