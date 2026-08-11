@@ -173,6 +173,29 @@ describe('Proofline database constraints', () => {
     }
   });
 
+  it('ships a forward-only lifecycle command transaction with locking, versions, replay receipts, and audit output', () => {
+    const lifecycle = allMigrations();
+
+    expect(lifecycle).toContain(
+      'alter table public.action_passports add column if not exists version bigint not null default 0',
+    );
+    expect(lifecycle).toContain(
+      'create table if not exists public.lifecycle_command_receipts',
+    );
+    expect(lifecycle).toContain(
+      'constraint lifecycle_command_receipts_workspace_command_key unique (workspace_id, action_passport_id, command_id)',
+    );
+    expect(lifecycle).toContain(
+      'create or replace function public.transition_action(',
+    );
+    expect(lifecycle).toContain('perform pg_advisory_xact_lock');
+    expect(lifecycle).toContain('for update;');
+    expect(lifecycle).toContain("'stale_version'");
+    expect(lifecycle).toContain("'idempotency_conflict'");
+    expect(lifecycle).toContain('insert into public.audit_events');
+    expect(lifecycle).toContain('correlation_id, causation_id');
+  });
+
   it('keeps seed data visibly synthetic and free of credentials', () => {
     const fixture = seed();
 

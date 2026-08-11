@@ -22,6 +22,7 @@ export interface ActionPassportRow extends PersistenceRow {
   action_id: string;
   passport_hash: string;
   status: ActionLifecycleStatus;
+  version: number;
   agent_id: string;
   tool_definition_id: string;
   policy_id: string;
