@@ -14,6 +14,7 @@ export const migrationNames = [
   '0010_task_7_proposal_binding_and_request_changes.sql',
   '0011_task_7_signed_passport_binding.sql',
   '0012_task_8_lifecycle_commands.sql',
+  '0013_task_8_lifecycle_hardening.sql',
 ] as const;
 
 export const tenantTables = [

@@ -114,3 +114,9 @@ user's direction. Do not begin Task 9 in this task.
 - Do not fake Buzz agents, NIP-42 auth, or Supabase live probes.
 - Do not expose, rotate, or deploy using secrets found in chat.
 - Do not rewrite migration history or use destructive git commands.
+
+## Task 8 fix round 1 status (2026-08-11)
+
+The five reviewer findings are addressed: Edge handlers authenticate and authorize workspace membership/role before service-role mutation; approval uses the versioned Task 8 lifecycle RPC; migration 0013 binds hashes to the canonical server-side command payload and records deterministic rejection receipts/audits; the worker package has an explicit domain dependency/build boundary; and expired approvals are rejected before `APPROVED`.
+
+Focused verification: 3 files and 21 tests passed; `pnpm typecheck` exited 0. No full suite, build, lint, format, or live database probe was run.

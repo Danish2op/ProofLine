@@ -196,6 +196,20 @@ describe('Proofline database constraints', () => {
     expect(lifecycle).toContain('correlation_id, causation_id');
   });
 
+  it('hardens lifecycle receipts against caller hash substitution and records rejected commands', () => {
+    const lifecycle = allMigrations();
+
+    expect(lifecycle).toContain('proofline_internal.sha256_json');
+    expect(lifecycle).toContain('command_hash_mismatch');
+    expect(lifecycle).toContain(
+      'insert into public.lifecycle_command_receipts',
+    );
+    expect(lifecycle).toContain('invalid_transition');
+    expect(lifecycle).toContain('stale_version');
+    expect(lifecycle).toContain('idempotency_conflict');
+    expect(lifecycle).toContain('source_approval_event_id');
+  });
+
   it('keeps seed data visibly synthetic and free of credentials', () => {
     const fixture = seed();
 

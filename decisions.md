@@ -185,3 +185,9 @@ Validation: commit `49fc1f7`; focused lifecycle/database verification passed
 33 tests, typecheck passed, and the race suite passed five consecutive bounded
 runs. Live migration application was not attempted because no disposable
 `SUPABASE_DB_URL` was configured.
+
+## D-023 — Task 8 fix round 1 hardening
+
+Decision: lifecycle Edge boundaries authenticate and authorize callers before service-role mutation; approval and revoke use the versioned Task 8 transition RPC; migration 0013 derives and validates command hashes from a canonical server-side payload and persists deterministic rejection receipts/audits; worker package boundaries are explicit; and approval expiry is enforced at the pure transition boundary.
+
+Validation: focused lifecycle/edge/worker verification passed 3 files / 21 tests; `pnpm typecheck` exited 0. Full-suite and live database checks remain intentionally unrun.

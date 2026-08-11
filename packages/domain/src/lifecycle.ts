@@ -118,18 +118,22 @@ export function transitionAction(input: TransitionInput): TransitionResult {
       false,
     );
   }
+  if (
+    (input.to === 'APPROVED' || input.to === 'EXECUTING') &&
+    approval !== undefined &&
+    approval.expiresAt <= input.occurredAt
+  ) {
+    return failure(
+      'approval_expired',
+      'The approval binding is already expired.',
+      false,
+    );
+  }
   if (input.to === 'EXECUTING') {
     if (approval === undefined) {
       return failure(
         'approval_required',
         'Execution requires a verified approval binding.',
-        false,
-      );
-    }
-    if (approval.expiresAt <= input.occurredAt) {
-      return failure(
-        'approval_expired',
-        'Execution cannot begin after approval expiry.',
         false,
       );
     }

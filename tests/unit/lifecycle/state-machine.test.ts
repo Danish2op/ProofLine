@@ -147,6 +147,24 @@ describe('transitionAction', () => {
     });
   });
 
+  it('rejects an already-expired approval before entering APPROVED', () => {
+    const state = actionState('PENDING_APPROVAL');
+
+    expect(
+      transition(state, 'APPROVED', {
+        approval: {
+          eventId: 'b'.repeat(64),
+          approvedBy: 'c'.repeat(64),
+          approvedAt: '2026-08-11T08:00:00.000Z',
+          expiresAt: '2026-08-11T09:00:00.000Z',
+        },
+      }),
+    ).toMatchObject({
+      ok: false,
+      error: { code: 'approval_expired', retryable: false },
+    });
+  });
+
   it('creates byte-for-byte deterministic audit records for equal commands', () => {
     const state = actionState();
     const first = transition(state, 'PENDING_APPROVAL');
