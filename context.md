@@ -95,9 +95,9 @@ Earlier findings already addressed in `71a59a6` but must not regress: DB-backed 
 
 ## Next exact action
 
-Start Task 8 lifecycle/state-machine implementation. Keep Task 7 stable unless
-a regression is proven; do not claim overall production readiness until Tasks
-8–18 are complete and reviewed.
+Start Task 9 proposer/verifier agent implementation. Keep Tasks 7–8 stable
+unless a regression is proven; do not claim overall production readiness until
+Tasks 9–18 are complete and reviewed.
 
 ## Task 8 status (2026-08-11)
 

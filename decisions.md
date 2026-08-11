@@ -256,3 +256,9 @@ Validation: RED produced 4 expected failures / 22 tests. Focused GREEN passed
 typecheck, workspace build, lint, repository-wide Prettier, and diff checks
 passed. The credential-gated database verifier skipped because
 `SUPABASE_DB_URL` is absent; no migration deployment claim is made.
+
+## D-022 — Task 8 approved
+
+Decision: advance to Task 9 after independent approval of commit `e0acb7c`.
+
+Reason: lifecycle state transitions, provenance binding, workspace authorization, worker boundaries, replay/idempotency, audit collision handling, and stale-database verification are covered by passing bounded evidence.
